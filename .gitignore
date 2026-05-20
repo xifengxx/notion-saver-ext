@@ -1,3 +1,5 @@
 node_modules
 dist
 .env
+backend/.env
+backend/token-store.json
