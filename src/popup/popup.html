@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notion Saver</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <header>
+      <h1>Notion Saver</h1>
+      <div class="header-actions">
+        <button id="theme-btn" class="theme-indicator" title="切换主题">Raycast</button>
+        <button id="settings-btn" class="icon-btn" title="设置">⚙</button>
+      </div>
+    </header>
+
+    <!-- 1. 内容预览（可编辑标题） -->
+    <div class="content-section">
+      <div id="content-preview">
+        <p class="loading">正在提取页面内容...</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 2. 保存到 Notion 页面选择器 -->
+    <div class="save-section">
+      <label>保存到：</label>
+      <div class="card">
+        <div class="page-picker-trigger" id="page-picker-trigger">
+          <span id="page-picker-label">选择目标页面...</span>
+          <span class="page-picker-arrow">▾</span>
+        </div>
+      </div>
+      <div id="page-picker-dropdown" class="page-picker-dropdown hidden">
+        <div class="search-box">
+          <input type="text" id="page-search" placeholder="搜索页面或数据库..." autocomplete="off">
+          <span class="search-icon"></span>
+        </div>
+        <div id="page-list" class="page-list">
+          <div class="page-list-loading">加载中...</div>
+        </div>
+      </div>
+      <input type="hidden" id="target-page" value="">
+    </div>
+
+    <!-- 3. 保存按钮 -->
+    <button id="save-btn" class="save-btn" disabled>
+      保存到 Notion
+    </button>
+
+    <!-- 4. 状态反馈 -->
+    <div id="status" class="status hidden">
+      <p class="status-text"></p>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 5. Notion 空间选择器（最下面） -->
+    <div class="workspace-section">
+      <label for="workspace-select">Notion 空间：</label>
+      <select id="workspace-select" class="workspace-select">
+        <option value="">加载中...</option>
+      </select>
+      <button id="add-workspace-btn" class="icon-btn small" title="管理空间">+</button>
+    </div>
+
+    <!-- Settings Panel (overlay) -->
+    <div id="settings-panel" class="settings-panel hidden">
+      <div class="settings-header">
+        <button id="back-from-settings" class="settings-icon-btn" title="返回">‹</button>
+        <h2>设置</h2>
+        <button id="close-settings" class="settings-icon-btn" title="关闭">×</button>
+      </div>
+      <div class="settings-body">
+        <div class="field">
+          <label for="image-mode">图片处理方式</label>
+          <select id="image-mode">
+            <option value="url">使用图片 URL</option>
+            <option value="base64">转为 Base64</option>
+          </select>
+        </div>
+        <div class="divider"></div>
+        <div class="workspace-manage">
+          <h3>管理 Notion 空间</h3>
+          <p class="hint">每个空间对应一个 Integration Token。Internal Integration 需要在目标页面/数据库的「设置 → 连接」中手动授权。</p>
+          <div id="workspace-list" class="workspace-list"></div>
+          <div class="add-workspace-form">
+            <input type="password" id="new-token" placeholder="secret_xxxxx...">
+            <input type="text" id="new-workspace-name" placeholder="空间名称（可选）">
+            <button id="add-workspace-save" class="primary-btn">添加空间</button>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div id="settings-status" class="status hidden" style="margin-top:12px">
+          <p class="status-text"></p>
+        </div>
+        <div class="actions">
+          <button id="save-settings" class="primary-btn">保存设置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

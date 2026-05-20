@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Notion Saver — 设计方案对比</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a1a;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      padding: 40px 20px;
+      color: #fff;
+    }
+    h1 { text-align: center; margin-bottom: 8px; font-size: 22px; }
+    .subtitle { text-align: center; color: #888; margin-bottom: 40px; font-size: 13px; }
+    .grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 32px;
+      justify-content: center;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .preview-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .preview-label {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .preview-desc {
+      font-size: 11px;
+      color: #888;
+      text-align: center;
+      max-width: 380px;
+      line-height: 1.5;
+    }
+
+    /* 共享 Popup 结构 */
+    .popup-preview {
+      width: 380px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+    }
+
+    /* ========== A: Linear 暗色精密 ========== */
+    .linear {
+      background: #0f1011;
+      color: #f7f8f8;
+      padding: 16px;
+      font-family: 'Inter', -apple-system, sans-serif;
+    }
+    .linear header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      margin-bottom: 12px;
+    }
+    .linear header h2 {
+      font-size: 14px;
+      font-weight: 510;
+      letter-spacing: -0.13px;
+      color: #d0d6e0;
+    }
+    .linear .content-area {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .linear .type-tag {
+      font-size: 10px;
+      font-weight: 510;
+      color: #62666d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .linear .article-title {
+      font-size: 14px;
+      font-weight: 590;
+      letter-spacing: -0.13px;
+      color: #f7f8f8;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .linear .article-meta {
+      font-size: 11px;
+      color: #8a8f98;
+    }
+    .linear .divider {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      margin: 12px 0;
+    }
+    .linear .section-label {
+      font-size: 11px;
+      font-weight: 510;
+      color: #8a8f98;
+      margin-bottom: 6px;
+    }
+    .linear .page-trigger {
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.02);
+      color: #8a8f98;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .linear .save-btn {
+      width: 100%;
+      padding: 9px;
+      background: #5e6ad2;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 510;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    .linear .workspace-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .linear .workspace-row label {
+      font-size: 11px;
+      color: #62666d;
+      white-space: nowrap;
+    }
+    .linear .workspace-row select {
+      flex: 1;
+      padding: 5px 8px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      color: #d0d6e0;
+      font-size: 12px;
+    }
+
+    /* ========== B: Cursor 暖色纸张 ========== */
+    .cursor-style {
+      background: #f2f1ed;
+      color: #26251e;
+      padding: 16px;
+      font-family: -apple-system, sans-serif;
+    }
+    .cursor-style header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid oklab(0.26 -0.002 0.012 / 0.1);
+      margin-bottom: 12px;
+    }
+    .cursor-style header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #26251e;
+    }
+    .cursor-style .content-area {
+      background: #ebeae5;
+      border: 1px solid oklab(0.26 -0.002 0.012 / 0.1);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .cursor-style .type-tag {
+      font-size: 10px;
+      font-weight: 600;
+      color: #c08532;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .cursor-style .article-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #26251e;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .cursor-style .article-meta {
+      font-size: 11px;
+      color: #615d59;
+    }
+    .cursor-style .divider {
+      border: none;
+      border-top: 1px dashed oklab(0.26 -0.002 0.012 / 0.15);
+      margin: 12px 0;
+    }
+    .cursor-style .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #615d59;
+      margin-bottom: 6px;
+    }
+    .cursor-style .page-trigger {
+      padding: 8px 10px;
+      border: 1px solid oklab(0.26 -0.002 0.012 / 0.15);
+      border-radius: 9999px;
+      background: #e6e5e0;
+      color: #615d59;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .cursor-style .save-btn {
+      width: 100%;
+      padding: 9px;
+      background: #f54e00;
+      color: #fff;
+      border: none;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    .cursor-style .workspace-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .cursor-style .workspace-row label {
+      font-size: 11px;
+      color: #a39e98;
+      white-space: nowrap;
+    }
+    .cursor-style .workspace-row select {
+      flex: 1;
+      padding: 5px 8px;
+      background: #e6e5e0;
+      border: 1px solid oklab(0.26 -0.002 0.012 / 0.1);
+      border-radius: 9999px;
+      color: #26251e;
+      font-size: 12px;
+    }
+
+    /* ========== C: Raycast 暗色金属 ========== */
+    .raycast {
+      background: #1e1e2e;
+      color: #f5f5f5;
+      padding: 16px;
+      font-family: -apple-system, sans-serif;
+    }
+    .raycast header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      margin-bottom: 12px;
+    }
+    .raycast header h2 {
+      font-size: 14px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #e040fb, #ff5252);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .raycast .content-area {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+      backdrop-filter: blur(10px);
+    }
+    .raycast .type-tag {
+      font-size: 10px;
+      font-weight: 700;
+      color: #e040fb;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .raycast .article-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f5f5f5;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .raycast .article-meta {
+      font-size: 11px;
+      color: #8888aa;
+    }
+    .raycast .divider {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      margin: 12px 0;
+    }
+    .raycast .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #8888aa;
+      margin-bottom: 6px;
+    }
+    .raycast .page-trigger {
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+      color: #8888aa;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .raycast .save-btn {
+      width: 100%;
+      padding: 9px;
+      background: linear-gradient(135deg, #e040fb, #ff5252);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    .raycast .workspace-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .raycast .workspace-row label {
+      font-size: 11px;
+      color: #666680;
+      white-space: nowrap;
+    }
+    .raycast .workspace-row select {
+      flex: 1;
+      padding: 5px 8px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      color: #d0d0e0;
+      font-size: 12px;
+    }
+
+    /* ========== D: Vercel 黑白精准 ========== */
+    .vercel {
+      background: #ffffff;
+      color: #000;
+      padding: 16px;
+      font-family: 'Geist', -apple-system, sans-serif;
+    }
+    .vercel header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eaeaea;
+      margin-bottom: 12px;
+    }
+    .vercel header h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #000;
+      letter-spacing: -0.02em;
+    }
+    .vercel .content-area {
+      background: #fafafa;
+      border: 1px solid #eaeaea;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .vercel .type-tag {
+      font-size: 10px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .vercel .article-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #000;
+      line-height: 1.4;
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+    .vercel .article-meta {
+      font-size: 11px;
+      color: #666;
+    }
+    .vercel .divider {
+      border: none;
+      border-top: 1px solid #eaeaea;
+      margin: 12px 0;
+    }
+    .vercel .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 6px;
+    }
+    .vercel .page-trigger {
+      padding: 8px 10px;
+      border: 1px solid #eaeaea;
+      border-radius: 6px;
+      background: #fff;
+      color: #666;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .vercel .save-btn {
+      width: 100%;
+      padding: 9px;
+      background: #000;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+    .vercel .workspace-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .vercel .workspace-row label {
+      font-size: 11px;
+      color: #666;
+      white-space: nowrap;
+    }
+    .vercel .workspace-row select {
+      flex: 1;
+      padding: 5px 8px;
+      background: #fff;
+      border: 1px solid #eaeaea;
+      border-radius: 6px;
+      color: #000;
+      font-size: 12px;
+    }
+
+    /* ========== E: Superhuman 暗色高级 ========== */
+    .superhuman {
+      background: #1a1a2e;
+      color: #e8e8f0;
+      padding: 16px;
+      font-family: -apple-system, sans-serif;
+    }
+    .superhuman header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      margin-bottom: 12px;
+    }
+    .superhuman header h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #e8e8f0;
+    }
+    .superhuman .content-area {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .superhuman .type-tag {
+      font-size: 10px;
+      font-weight: 700;
+      color: #a78bfa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .superhuman .article-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #e8e8f0;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .superhuman .article-meta {
+      font-size: 11px;
+      color: #777790;
+    }
+    .superhuman .divider {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      margin: 12px 0;
+    }
+    .superhuman .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #777790;
+      margin-bottom: 6px;
+    }
+    .superhuman .page-trigger {
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.03);
+      color: #777790;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .superhuman .save-btn {
+      width: 100%;
+      padding: 9px;
+      background: linear-gradient(135deg, #7c3aed, #a78bfa);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 12px;
+      box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+    }
+    .superhuman .workspace-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .superhuman .workspace-row label {
+      font-size: 11px;
+      color: #555570;
+      white-space: nowrap;
+    }
+    .superhuman .workspace-row select {
+      flex: 1;
+      padding: 5px 8px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      color: #c8c8d8;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Notion Saver — 设计方案对比</h1>
+  <p class="subtitle">点击方案名称可查看该风格的详细设计系统文档</p>
+
+  <div class="grid">
+    <!-- A: Linear -->
+    <div class="preview-card">
+      <div class="preview-label" style="color:#7170ff;">A · Linear 暗色精密</div>
+      <div class="popup-preview linear">
+        <header>
+          <h2>Notion Saver</h2>
+          <span style="color:#62666d;font-size:16px;">⚙</span>
+        </header>
+        <div class="content-area">
+          <div class="type-tag">公众号</div>
+          <div class="article-title">零成本自建AI财富办公室，回测100条量化策略（上）</div>
+          <div class="article-meta">任易 · 2026年5月16日 21:49</div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-label">保存到</div>
+        <div class="page-trigger">
+          <span>选择目标页面...</span>
+          <span>▾</span>
+        </div>
+        <button class="save-btn">保存到 Notion</button>
+        <div class="divider"></div>
+        <div class="workspace-row">
+          <label>空间</label>
+          <select><option>Cary's Notion</option></select>
+          <span style="color:#62666d;font-size:14px;cursor:pointer;">+</span>
+        </div>
+      </div>
+      <div class="preview-desc">
+        暗色原生，靛紫唯一色<br>半透明白边框，精密克制<br>适合追求极致简洁的工具控
+      </div>
+    </div>
+
+    <!-- B: Cursor -->
+    <div class="preview-card">
+      <div class="preview-label" style="color:#f54e00;">B · Cursor 暖色纸张</div>
+      <div class="popup-preview cursor-style">
+        <header>
+          <h2>Notion Saver</h2>
+          <span style="color:#a39e98;font-size:16px;">⚙</span>
+        </header>
+        <div class="content-area">
+          <div class="type-tag">公众号</div>
+          <div class="article-title">零成本自建AI财富办公室，回测100条量化策略（上）</div>
+          <div class="article-meta">任易 · 2026年5月16日 21:49</div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-label">保存到</div>
+        <div class="page-trigger">
+          <span>选择目标页面...</span>
+          <span>▾</span>
+        </div>
+        <button class="save-btn">保存到 Notion</button>
+        <div class="divider"></div>
+        <div class="workspace-row">
+          <label>空间</label>
+          <select><option>Cary's Notion</option></select>
+          <span style="color:#a39e98;font-size:14px;cursor:pointer;">+</span>
+        </div>
+      </div>
+      <div class="preview-desc">
+        暖奶油底色，暖棕文字<br>橙红色点缀，Pill圆角<br>像高级印刷品，有温度感
+      </div>
+    </div>
+
+    <!-- C: Raycast -->
+    <div class="preview-card">
+      <div class="preview-label" style="color:#e040fb;">C · Raycast 暗色金属</div>
+      <div class="popup-preview raycast">
+        <header>
+          <h2>Notion Saver</h2>
+          <span style="color:#8888aa;font-size:16px;">⚙</span>
+        </header>
+        <div class="content-area">
+          <div class="type-tag">公众号</div>
+          <div class="article-title">零成本自建AI财富办公室，回测100条量化策略（上）</div>
+          <div class="article-meta">任易 · 2026年5月16日 21:49</div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-label">保存到</div>
+        <div class="page-trigger">
+          <span>选择目标页面...</span>
+          <span>▾</span>
+        </div>
+        <button class="save-btn">保存到 Notion</button>
+        <div class="divider"></div>
+        <div class="workspace-row">
+          <label>空间</label>
+          <select><option>Cary's Notion</option></select>
+          <span style="color:#666680;font-size:14px;cursor:pointer;">+</span>
+        </div>
+      </div>
+      <div class="preview-desc">
+        暗色底+紫红渐变按钮<br>毛玻璃质感，紧凑高效<br>像 macOS 生产力启动器
+      </div>
+    </div>
+
+    <!-- D: Vercel -->
+    <div class="preview-card">
+      <div class="preview-label" style="color:#fff;">D · Vercel 黑白精准</div>
+      <div class="popup-preview vercel">
+        <header>
+          <h2>Notion Saver</h2>
+          <span style="color:#666;font-size:16px;">⚙</span>
+        </header>
+        <div class="content-area">
+          <div class="type-tag">公众号</div>
+          <div class="article-title">零成本自建AI财富办公室，回测100条量化策略（上）</div>
+          <div class="article-meta">任易 · 2026年5月16日 21:49</div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-label">保存到</div>
+        <div class="page-trigger">
+          <span>选择目标页面...</span>
+          <span>▾</span>
+        </div>
+        <button class="save-btn">保存到 Notion</button>
+        <div class="divider"></div>
+        <div class="workspace-row">
+          <label>空间</label>
+          <select><option>Cary's Notion</option></select>
+          <span style="color:#666;font-size:14px;cursor:pointer;">+</span>
+        </div>
+      </div>
+      <div class="preview-desc">
+        纯黑白，零色彩妥协<br>精确1px边框，Geist字体<br>极简到每个像素都有理由
+      </div>
+    </div>
+
+    <!-- E: Superhuman -->
+    <div class="preview-card">
+      <div class="preview-label" style="color:#a78bfa;">E · Superhuman 暗色高级</div>
+      <div class="popup-preview superhuman">
+        <header>
+          <h2>Notion Saver</h2>
+          <span style="color:#777790;font-size:16px;"></span>
+        </header>
+        <div class="content-area">
+          <div class="type-tag">公众号</div>
+          <div class="article-title">零成本自建AI财富办公室，回测100条量化策略（上）</div>
+          <div class="article-meta">任易 · 2026年5月16日 21:49</div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-label">保存到</div>
+        <div class="page-trigger">
+          <span>选择目标页面...</span>
+          <span>▾</span>
+        </div>
+        <button class="save-btn">保存到 Notion</button>
+        <div class="divider"></div>
+        <div class="workspace-row">
+          <label>空间</label>
+          <select><option>Cary's Notion</option></select>
+          <span style="color:#555570;font-size:14px;cursor:pointer;">+</span>
+        </div>
+      </div>
+      <div class="preview-desc">
+        暗色高级感+紫色光晕<br>紧凑信息密度，专业感<br>像给专业人士用的效率工具
+      </div>
+    </div>
+  </div>
+</body>
+</html>
