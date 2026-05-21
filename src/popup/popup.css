@@ -436,6 +436,19 @@ header h1 {
   color: var(--secondary-text);
 }
 
+.workspace-card:hover {
+  border-color: rgba(128, 128, 128, 0.4);
+  background: rgba(128, 128, 128, 0.06);
+}
+
+.workspace-item:hover {
+  background: var(--hover-bg);
+}
+
+.field select:hover {
+  border-color: rgba(128, 128, 128, 0.4);
+}
+
 .workspace-select option {
   background: #ffffff;
   color: #000000;
@@ -556,6 +569,10 @@ header h1 {
   background: var(--dropdown-bg);
 }
 
+.field select:hover {
+  border-color: rgba(128, 128, 128, 0.4);
+}
+
 .workspace-manage h3 {
   font-size: 13px;
   font-weight: 700;
@@ -646,7 +663,7 @@ header h1 {
 
 .popup.theme-raycast .unbind-confirm {
   background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .popup.theme-raycast .unbind-confirm-text {
@@ -960,6 +977,19 @@ header h1 {
 .popup.theme-raycast .workspace-card select option {
   background: #252540;
   color: #d0d0e0;
+}
+
+.popup.theme-raycast .workspace-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.popup.theme-raycast .workspace-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.popup.theme-raycast .field select:hover {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .popup.theme-raycast .status.success {
@@ -1346,6 +1376,19 @@ header h1 {
 .popup.theme-vercel .workspace-card select option {
   background: #ffffff;
   color: #333333;
+}
+
+.popup.theme-vercel .workspace-card:hover {
+  border-color: #ccc;
+  background: #f5f5f5;
+}
+
+.popup.theme-vercel .workspace-item:hover {
+  background: #f5f5f5;
+}
+
+.popup.theme-vercel .field select:hover {
+  border-color: #ccc;
 }
 
 .popup.theme-vercel .status.success {
