@@ -325,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return !wsRecent.some(function(r) { return r.id === p.id; }) &&
                !wsDb.some(function(d) { return d.id === p.id; });
       });
-      renderPageList(wsDb, wsPages, wsRecent);
+      renderPageList(wsDb, wsPages, wsRecent, 10);
       return;
     }
 
@@ -339,11 +339,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result && result.success) {
           var mergedDb = mergeById(mergeById(filteredDb, result.databases || []), filteredRecent);
           var mergedPages = mergeById(filteredPages, result.pages || []);
-          renderPageList(mergedDb, mergedPages, []);
+          // 搜索时不限制数量
+          renderPageList(mergedDb, mergedPages, [], 0);
         }
       });
     } else {
-      renderPageList(filteredDb, filteredPages, filteredRecent);
+      renderPageList(filteredDb, filteredPages, filteredRecent, 10);
     }
   }
 
@@ -364,9 +365,11 @@ document.addEventListener('DOMContentLoaded', () => {
     return result;
   }
 
-  function renderPageList(databases, pages, recent) {
+  function renderPageList(databases, pages, recent, pageLimit) {
+    pageLimit = pageLimit || 0;
     var html = '';
     recent = recent || [];
+    var displayPages = pageLimit > 0 ? pages.slice(0, pageLimit) : pages;
 
     if (recent.length > 0) {
       html += '<div class="page-list-section"><div class="page-list-label">最近保存</div>';
@@ -388,15 +391,15 @@ document.addEventListener('DOMContentLoaded', () => {
       html += '</div>';
     }
 
-    if (pages.length > 0) {
+    if (displayPages.length > 0) {
       html += '<div class="page-list-section"><div class="page-list-label">页面</div>';
-      for (var i = 0; i < Math.min(pages.length, 20); i++) {
-        html += '<div class="page-list-item" data-id="' + pages[i].id + '">' +
+      for (var i = 0; i < displayPages.length; i++) {
+        html += '<div class="page-list-item" data-id="' + displayPages[i].id + '">' +
           '<span class="page-icon"></span>' +
-          '<span class="page-title">' + escapeHtml(pages[i].title) + '</span></div>';
+          '<span class="page-title">' + escapeHtml(displayPages[i].title) + '</span></div>';
       }
-      if (pages.length > 20) {
-        html += '<div class="page-list-more">还有 ' + (pages.length - 20) + ' 个页面，请输入搜索关键词</div>';
+      if (pageLimit > 0 && pages.length > pageLimit) {
+        html += '<div class="page-list-more">还有更多页面，请输入关键词搜索</div>';
       }
       html += '</div>';
     }
