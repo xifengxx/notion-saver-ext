@@ -475,6 +475,24 @@ header h1 {
   overflow-y: auto;
 }
 
+/* 设置面板滚动条 — 细滚动条 */
+.settings-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.settings-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-panel::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 2px;
+}
+
+.settings-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5);
+}
+
 .settings-header {
   display: flex;
   align-items: center;
@@ -578,7 +596,7 @@ header h1 {
   padding: 12px;
   background: var(--content-bg);
   border: 1px solid var(--content-border);
-  border-radius: var(--content-radius);
+  border-radius: 8px;
 }
 
 .unbind-confirm-text {

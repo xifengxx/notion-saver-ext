@@ -176,6 +176,10 @@ document.addEventListener('DOMContentLoaded', () => {
   workspaceSelect.addEventListener('change', () => {
     var botId = workspaceSelect.value;
     if (!botId) return;
+    // 切换空间时清除"在 Notion 中打开"
+    openInNotion.classList.add('hidden');
+    savedPageUrl = null;
+
     chrome.storage.local.set({ notion_current_workspace_bot_id: botId }, () => {
       currentWorkspaceBotId = botId;
       allPages = [];
@@ -571,6 +575,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result.pageUrl) {
           savedPageUrl = result.pageUrl;
           openInNotion.classList.remove('hidden');
+          // 10秒后自动隐藏
+          setTimeout(() => {
+            openInNotion.classList.add('hidden');
+            savedPageUrl = null;
+          }, 10000);
         }
 
         setTimeout(() => {
