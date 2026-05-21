@@ -14,12 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const backFromSettings = document.getElementById('back-from-settings');
   const closeSettings = document.getElementById('close-settings');
   const saveSettings = document.getElementById('save-settings');
-  const logoutBtn = document.getElementById('logout-btn');
-  const workspaceSelect = document.getElementById('workspace-select');
-  const addWorkspaceBtn = document.getElementById('add-workspace-btn');
   const settingsWorkspaceList = document.getElementById('settings-workspace-list');
-  const settingsLogoutSection = document.getElementById('settings-logout-section');
-  const settingsLogoutDivider = document.getElementById('settings-logout-divider');
+  const workspaceSelect = document.getElementById('workspace-select');
   const themeBtn = document.getElementById('theme-btn');
   const pageSearch = document.getElementById('page-search');
   const pageList = document.getElementById('page-list');
@@ -80,7 +76,6 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsPanel.classList.remove('hidden');
     closeDropdown();
     renderSettingsWorkspaceList();
-    updateLogoutVisibility();
   });
 
   backFromSettings.addEventListener('click', () => {
@@ -102,38 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       showSettingsStatus('设置已保存', 'success');
-    });
-  });
-
-  // 解绑当前空间
-  logoutBtn.addEventListener('click', () => {
-    if (!currentWorkspaceBotId) return;
-    removeWorkspace(currentWorkspaceBotId, () => {
-      settingsPanel.classList.add('hidden');
-      checkLogin();
-    });
-  });
-
-  // 添加新空间
-  addWorkspaceBtn.addEventListener('click', () => {
-    startOAuthLogin();
-  });
-
-  // Workspace 切换
-  workspaceSelect.addEventListener('change', () => {
-    var botId = workspaceSelect.value;
-    if (!botId) return;
-    chrome.storage.local.set({ notion_current_workspace_bot_id: botId }, () => {
-      currentWorkspaceBotId = botId;
-      // 切换空间时清除页面列表和最近记录
-      allPages = [];
-      allDatabases = [];
-      targetPage.value = '';
-      pageSearch.value = '';
-      pageSearch.placeholder = '选择或搜索目标页面...';
-      pageSearch.classList.remove('has-value');
-      pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
-      loadPageData();
     });
   });
 
@@ -168,6 +131,23 @@ document.addEventListener('DOMContentLoaded', () => {
       openInNotion.classList.add('hidden');
       savedPageUrl = null;
     }
+  });
+
+  // Workspace 切换
+  workspaceSelect.addEventListener('change', () => {
+    var botId = workspaceSelect.value;
+    if (!botId) return;
+    chrome.storage.local.set({ notion_current_workspace_bot_id: botId }, () => {
+      currentWorkspaceBotId = botId;
+      allPages = [];
+      allDatabases = [];
+      targetPage.value = '';
+      pageSearch.value = '';
+      pageSearch.placeholder = '选择或搜索目标页面...';
+      pageSearch.classList.remove('has-value');
+      pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
+      loadPageData();
+    });
   });
 
   // ============================================================
@@ -235,17 +215,40 @@ document.addEventListener('DOMContentLoaded', () => {
       workspaceSelect.appendChild(opt);
     }
     renderSettingsWorkspaceList();
-    updateLogoutVisibility();
   }
 
-  function updateLogoutVisibility() {
-    if (workspaces.length === 0) {
-      settingsLogoutSection.classList.add('hidden');
-      settingsLogoutDivider.classList.add('hidden');
-    } else {
-      settingsLogoutSection.classList.remove('hidden');
-      settingsLogoutDivider.classList.remove('hidden');
+  function removeWorkspace(botId) {
+    var wsName = '';
+    for (var i = 0; i < workspaces.length; i++) {
+      if (workspaces[i].bot_id === botId) {
+        wsName = workspaces[i].workspace_name || 'Notion';
+        break;
+      }
     }
+
+    var msg = '确认解绑「' + wsName + '」吗？';
+    if (botId === currentWorkspaceBotId) {
+      msg += '\n解绑后会自动切换到其他可用空间。';
+    }
+
+    if (!confirm(msg)) return;
+
+    workspaces = workspaces.filter(function(ws) { return ws.bot_id !== botId; });
+    if (botId === currentWorkspaceBotId) {
+      currentWorkspaceBotId = workspaces.length > 0 ? workspaces[0].bot_id : null;
+    }
+    chrome.storage.local.set({
+      notion_workspaces: workspaces,
+      notion_current_workspace_bot_id: currentWorkspaceBotId,
+    }, () => {
+      refreshWorkspaceUI();
+      if (workspaces.length === 0) {
+        settingsPanel.classList.add('hidden');
+        checkLogin();
+      } else {
+        loadPageData();
+      }
+    });
   }
 
   function renderSettingsWorkspaceList() {
@@ -257,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
       html += '<div class="workspace-item' + (isActive ? ' active' : '') + '">' +
         '<span class="workspace-name">' + escapeHtml(ws.workspace_name || 'Notion') + '</span>' +
         '<div class="workspace-actions">' +
-        '<button class="remove-ws-btn" data-bot-id="' + ws.bot_id + '" title="解绑">×</button>' +
+        '<button class="remove-ws-btn" data-bot-id="' + ws.bot_id + '" title="解绑空间">×</button>' +
         '</div></div>';
     }
     if (workspaces.length === 0) {
@@ -267,28 +270,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     settingsWorkspaceList.querySelectorAll('.remove-ws-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        var botId = this.getAttribute('data-bot-id');
-        removeWorkspace(botId, () => {
-          renderSettingsWorkspaceList();
-          updateLogoutVisibility();
-          if (workspaces.length === 0) {
-            settingsPanel.classList.add('hidden');
-            checkLogin();
-          }
-        });
+        removeWorkspace(this.getAttribute('data-bot-id'));
       });
     });
-  }
-
-  function removeWorkspace(botId, callback) {
-    workspaces = workspaces.filter(function(ws) { return ws.bot_id !== botId; });
-    if (botId === currentWorkspaceBotId) {
-      currentWorkspaceBotId = workspaces.length > 0 ? workspaces[0].bot_id : null;
-    }
-    chrome.storage.local.set({
-      notion_workspaces: workspaces,
-      notion_current_workspace_bot_id: currentWorkspaceBotId,
-    }, callback);
   }
 
   // ============================================================

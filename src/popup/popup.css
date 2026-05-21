@@ -414,23 +414,19 @@ header h1 {
   letter-spacing: 0.5px;
 }
 
-.workspace-section .card {
-  flex: 1;
-  display: block;
-}
-
 .workspace-select {
-  width: 100%;
+  flex: 1;
   padding: 8px 10px;
-  border: none;
+  border: 1px solid rgba(128, 128, 128, 0.25);
   border-radius: 8px;
   font-size: 13px;
-  background: transparent;
+  background: rgba(128, 128, 128, 0.04);
   color: inherit;
   cursor: pointer;
   outline: none;
   -webkit-appearance: none;
   appearance: none;
+  min-height: 38px;
 }
 
 .workspace-select option {
@@ -540,6 +536,33 @@ header h1 {
   font-weight: 700;
   margin: 0 0 6px 0;
   color: var(--text-color);
+}
+
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.workspace-header .hint {
+  flex: 1;
+}
+
+.settings-add-btn {
+  background: none;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 8px;
+  color: var(--meta-color);
+  transition: all 0.2s;
+  line-height: 1.4;
+}
+
+.settings-add-btn:hover {
+  color: var(--text-color);
+  border-color: var(--text-color);
 }
 
 .hint {
@@ -827,12 +850,9 @@ header h1 {
   color: #666680;
 }
 
-.popup.theme-raycast .workspace-section .card {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.06);
-}
-
 .popup.theme-raycast .workspace-select {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
   color: #d0d0e0;
 }
 
@@ -1213,12 +1233,9 @@ header h1 {
   color: #999999;
 }
 
-.popup.theme-vercel .workspace-section .card {
-  background: #fafafa;
-  border-color: #eaeaea;
-}
-
 .popup.theme-vercel .workspace-select {
+  background: #ffffff;
+  border-color: #eaeaea;
   color: #333333;
 }
 
