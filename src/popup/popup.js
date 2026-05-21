@@ -191,33 +191,36 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
 
   function extractCurrentPage() {
-    chrome.runtime.sendMessage({ action: 'extract_content' }, (response) => {
-      if (chrome.runtime.lastError) {
-        contentPreview.innerHTML = '<p style="color:#d44">扩展后台服务未启动，请重启扩展</p>';
-        return;
-      }
-      if (response && !response.error) {
-        extractedData = response;
-        var typeLabel = response.type === 'wechat' ? '公众号' : '网页';
-        var metaHtml = '';
-        if (response.author || response.publishTime) {
-          var parts = [];
-          if (response.author) parts.push(escapeHtml(response.author));
-          if (response.publishTime) parts.push(escapeHtml(response.publishTime));
-          metaHtml = '<p class="meta-info">' + parts.join(' &middot; ') + '</p>';
+    // 延迟 500ms 让动态内容（懒加载图片等）稳定
+    setTimeout(function() {
+      chrome.runtime.sendMessage({ action: 'extract_content' }, function(response) {
+        if (chrome.runtime.lastError) {
+          contentPreview.innerHTML = '<p style="color:#d44">扩展后台服务未启动，请重启扩展</p>';
+          return;
         }
-        contentPreview.innerHTML =
-          '<div class="type-label">' + typeLabel + '</div>' +
-          '<div class="title-row">' +
-          '<div id="editable-title" class="editable-title" contenteditable="true">' + escapeHtml(response.title) + '</div>' +
-          '<span class="edit-icon" title="点击编辑标题">✏</span>' +
-          '</div>' +
-          metaHtml;
-        saveBtn.disabled = false;
-      } else {
-        contentPreview.innerHTML = '<p style="color:#d44">' + escapeHtml(response ? response.error : '提取失败') + '</p>';
-      }
-    });
+        if (response && !response.error) {
+          extractedData = response;
+          var typeLabel = response.type === 'wechat' ? '公众号' : '网页';
+          var metaHtml = '';
+          if (response.author || response.publishTime) {
+            var parts = [];
+            if (response.author) parts.push(escapeHtml(response.author));
+            if (response.publishTime) parts.push(escapeHtml(response.publishTime));
+            metaHtml = '<p class="meta-info">' + parts.join(' &middot; ') + '</p>';
+          }
+          contentPreview.innerHTML =
+            '<div class="type-label">' + typeLabel + '</div>' +
+            '<div class="title-row">' +
+            '<div id="editable-title" class="editable-title" contenteditable="true">' + escapeHtml(response.title) + '</div>' +
+            '<span class="edit-icon" title="点击编辑标题">✏</span>' +
+            '</div>' +
+            metaHtml;
+          saveBtn.disabled = false;
+        } else {
+          contentPreview.innerHTML = '<p style="color:#d44">' + escapeHtml(response ? response.error : '提取失败') + '</p>';
+        }
+      });
+    }, 500);
   }
 
   function loadSettings() {
