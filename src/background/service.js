@@ -1,7 +1,8 @@
-// Background Service Worker — Notion API 集成
+// Background Service Worker — Notion API 集成 (OAuth 版本)
 // Blocks 由 content script 通过 DOM 遍历转换，保持原始顺序
 
 var NOTION_API = 'https://api.notion.com';
+var BACKEND_URL = 'https://notion-saver-ext-production.up.railway.app';
 var RATE_LIMIT_DELAY = 400;
 var BLOCK_LIMIT = 100;
 
@@ -27,7 +28,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   }
 
   if (message.action === 'save_to_notion') {
-    saveToNotion(message.data, message.targetPage, message.workspaceId).then(sendResponse).catch(function(err) {
+    saveToNotion(message.data, message.targetPage).then(sendResponse).catch(function(err) {
       console.error('[Notion Saver] Unhandled error in saveToNotion:', err);
       sendResponse({ success: false, error: err.message || '保存失败' });
     });
@@ -35,7 +36,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   }
 
   if (message.action === 'get_settings') {
-    chrome.storage.local.get(['notion_token', 'default_page', 'image_mode', 'notion_workspaces', 'notion_current_workspace'], function(result) {
+    chrome.storage.local.get(['image_mode'], function(result) {
       sendResponse(result);
     });
     return true;
@@ -48,76 +49,92 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     return true;
   }
 
-  if (message.action === 'test_connection') {
-    testNotionConnection(message.token).then(sendResponse).catch(function(err) {
-      sendResponse({ success: false, error: err.message || '测试失败' });
-    });
-    return true;
-  }
-
   if (message.action === 'fetch_pages') {
-    var fetchToken = message.token;
-    if (!fetchToken && message.workspaceId) {
-      getWorkspaceToken(message.workspaceId).then(function(token) {
-        fetchNotionPages(token, message.query).then(sendResponse).catch(function(err) {
-          sendResponse({ success: false, error: err.message || '获取失败', pages: [], databases: [] });
-        });
-      });
-    } else if (fetchToken) {
-      fetchNotionPages(fetchToken, message.query).then(sendResponse).catch(function(err) {
+    getValidToken().then(function(token) {
+      if (!token) {
+        sendResponse({ success: false, error: '未登录，请先连接到 Notion', pages: [], databases: [] });
+        return;
+      }
+      fetchNotionPages(token, message.query).then(sendResponse).catch(function(err) {
         sendResponse({ success: false, error: err.message || '获取失败', pages: [], databases: [] });
       });
-    } else {
-      sendResponse({ success: false, error: '未配置 Notion Integration Token', pages: [], databases: [] });
-    }
-    return true;
-  }
-
-  if (message.action === 'list_workspaces') {
-    chrome.storage.local.get(['notion_workspaces', 'notion_current_workspace'], function(result) {
-      sendResponse({
-        workspaces: result.notion_workspaces || [],
-        currentId: result.notion_current_workspace || null,
-      });
-    });
-    return true;
-  }
-
-  if (message.action === 'add_workspace') {
-    addWorkspace(message.token, message.name).then(sendResponse).catch(function(err) {
-      sendResponse({ success: false, error: err.message || '添加失败' });
-    });
-    return true;
-  }
-
-  if (message.action === 'remove_workspace') {
-    removeWorkspace(message.id).then(sendResponse).catch(function(err) {
-      sendResponse({ success: false, error: err.message || '删除失败' });
-    });
-    return true;
-  }
-
-  if (message.action === 'switch_workspace') {
-    chrome.storage.local.set({ notion_current_workspace: message.id }, function() {
-      sendResponse({ success: true });
     });
     return true;
   }
 });
 
 // ============================================================
+// Token 管理
+// ============================================================
+
+function getValidToken() {
+  return new Promise(function(resolve) {
+    chrome.storage.local.get([
+      'oauth_access_token',
+      'oauth_refresh_token',
+      'oauth_expires_at',
+    ], function(result) {
+      if (!result.oauth_access_token) {
+        resolve(null);
+        return;
+      }
+
+      // 检查是否过期（提前 1 分钟）
+      var expiresAt = result.oauth_expires_at || 0;
+      if (Date.now() > expiresAt - 60000) {
+        // Token 即将过期，尝试刷新
+        if (result.oauth_refresh_token) {
+          refreshToken(result.oauth_refresh_token).then(function(newTokens) {
+            resolve(newTokens.access_token);
+          }).catch(function() {
+            // 刷新失败，返回 null，提示用户重新登录
+            resolve(null);
+          });
+        } else {
+          resolve(null);
+        }
+      } else {
+        resolve(result.oauth_access_token);
+      }
+    });
+  });
+}
+
+function refreshToken(refreshTokenValue) {
+  return fetch(BACKEND_URL + '/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshTokenValue }),
+  }).then(function(res) {
+    if (!res.ok) {
+      return res.text().then(function(err) { throw new Error(err); });
+    }
+    return res.json();
+  }).then(function(tokens) {
+    return new Promise(function(resolve) {
+      chrome.storage.local.set({
+        oauth_access_token: tokens.access_token,
+        oauth_refresh_token: tokens.refresh_token,
+        oauth_expires_at: tokens.expires_at,
+      }, function() {
+        resolve(tokens);
+      });
+    });
+  });
+}
+
+// ============================================================
 // Notion API 核心保存流程
 // ============================================================
-function saveToNotion(data, parentPageId, workspaceId) {
-  return getWorkspaceToken(workspaceId).then(function(token) {
+function saveToNotion(data, parentPageId) {
+  return getValidToken().then(function(token) {
     if (!token) {
-      return { success: false, error: '未配置 Notion Integration Token' };
+      return { success: false, error: '未登录或认证已过期，请重新登录' };
     }
 
     return createPage(token, data, parentPageId).then(function(page) {
       var pageId = page.id;
 
-      // 转换 blocks
       var blocks = (data.blocks || []).map(function(b) {
         var result = { object: 'block', type: b.type };
         result[b.type] = b[b.type];
@@ -133,7 +150,6 @@ function saveToNotion(data, parentPageId, workspaceId) {
         };
       }
 
-      // 分批写入 blocks
       var chunks = [];
       for (var i = 0; i < blocks.length; i += BLOCK_LIMIT) {
         chunks.push(blocks.slice(i, i + BLOCK_LIMIT));
@@ -180,7 +196,6 @@ function createPage(token, data, parentPageId) {
       },
     };
 
-    // 构建 URL 链接文本（验证并清理 URL）
     var urlText;
     if (data.url && data.url.indexOf('http') === 0) {
       var cleanUrl = data.url.split('#')[0];
@@ -238,7 +253,6 @@ function createPage(token, data, parentPageId) {
       method: 'POST',
       body: JSON.stringify(body),
     }).catch(function(err) {
-      // page_id 失败时尝试 database_id（用户可能选的是数据库而非页面）
       if (parent.type === 'page' && err.message &&
           (err.message.indexOf('Could not find page') >= 0 ||
            err.message.indexOf('parent') >= 0 ||
@@ -283,43 +297,28 @@ function getDefaultParent(token, explicitParentId) {
 }
 
 function fallbackToDefaultPage(token) {
-  return getSetting('default_page').then(function(saved) {
-    if (saved) return saved;
-
-    return notionFetch('/v1/search', token, {
-      method: 'POST',
-      body: JSON.stringify({
-        query: '',
-        filter: { property: 'object', value: 'page' },
-        page_size: 1,
-      }),
-    }).then(function(response) {
-      if (response.results && response.results.length > 0) {
-        return response.results[0].id;
-      }
-      throw new Error('Integration 没有访问任何页面，请先在 Notion 中创建页面并授权给 Integration');
-    }).catch(function(err) {
-      if (err.message && err.message.indexOf('没有访问任何页面') >= 0) {
-        throw err;
-      }
-      throw new Error('无法获取 Notion 页面列表: ' + (err.message || '未知错误'));
-    });
-  });
-}
-
-// ============================================================
-// 测试 Notion 连接
-// ============================================================
-function testNotionConnection(token) {
-  return notionFetch('/v1/users/me', token, { method: 'GET' }).then(function() {
-    return { success: true };
+  return notionFetch('/v1/search', token, {
+    method: 'POST',
+    body: JSON.stringify({
+      query: '',
+      filter: { property: 'object', value: 'page' },
+      page_size: 1,
+    }),
+  }).then(function(response) {
+    if (response.results && response.results.length > 0) {
+      return response.results[0].id;
+    }
+    throw new Error('Integration 没有访问任何页面，请先在 Notion 中创建页面并授权给 Connection');
   }).catch(function(err) {
-    return { success: false, error: err.message };
+    if (err.message && err.message.indexOf('没有访问任何页面') >= 0) {
+      throw err;
+    }
+    throw new Error('无法获取 Notion 页面列表: ' + (err.message || '未知错误'));
   });
 }
 
 // ============================================================
-// 获取用户可访问的页面列表（支持搜索和分类）
+// 获取用户可访问的页面列表
 // ============================================================
 function fetchNotionPages(token, query) {
   var searchBody = {
@@ -330,7 +329,6 @@ function fetchNotionPages(token, query) {
   if (query && query.trim()) {
     searchBody.query = query.trim();
   } else {
-    // 无搜索词时，默认只返回数据库
     searchBody.filter = { property: 'object', value: 'database' };
   }
 
@@ -438,7 +436,6 @@ function notionFetch(path, token, options) {
         throw new Error(errorMsg);
       });
     }).catch(function(err) {
-      // TypeError (网络失败) 尝试重试
       if (err instanceof TypeError && attempt < maxRetries) {
         console.log('[Notion Saver] Network error, retrying (' + attempt + '/' + maxRetries + '): ' + err.message);
         return delay(1000 * attempt).then(doFetch);
@@ -453,81 +450,6 @@ function notionFetch(path, token, options) {
 // ============================================================
 // 工具函数
 // ============================================================
-function getSetting(key) {
-  return new Promise(function(resolve) {
-    chrome.storage.local.get(key, function(result) {
-      resolve(result[key] || null);
-    });
-  });
-}
-
 function delay(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
-}
-
-// ============================================================
-// Workspace 管理
-// ============================================================
-function getWorkspaceToken(workspaceId) {
-  if (!workspaceId) {
-    // 无指定 workspace，回退到旧版单个 token
-    return getSetting('notion_token');
-  }
-  return new Promise(function(resolve) {
-    chrome.storage.local.get(['notion_workspaces'], function(result) {
-      var workspaces = result.notion_workspaces || [];
-      for (var i = 0; i < workspaces.length; i++) {
-        if (workspaces[i].id === workspaceId) {
-          resolve(workspaces[i].token);
-          return;
-        }
-      }
-      resolve(null);
-    });
-  });
-}
-
-function addWorkspace(token, customName) {
-  return notionFetch('/v1/users/me', token, { method: 'GET' }).then(function(user) {
-    var workspaceName = customName || (user.bot && user.bot.workspace_name ? user.bot.workspace_name : 'Notion Workspace');
-    var workspaceId = 'ws_' + Date.now();
-
-    return new Promise(function(resolve) {
-      chrome.storage.local.get(['notion_workspaces', 'notion_current_workspace'], function(result) {
-        var workspaces = result.notion_workspaces || [];
-        workspaces.push({
-          id: workspaceId,
-          name: workspaceName,
-          token: token,
-        });
-        var currentId = result.notion_current_workspace || workspaceId;
-        chrome.storage.local.set({
-          notion_workspaces: workspaces,
-          notion_current_workspace: currentId,
-        }, function() {
-          resolve({ success: true, id: workspaceId, name: workspaceName });
-        });
-      });
-    });
-  });
-}
-
-function removeWorkspace(id) {
-  return new Promise(function(resolve) {
-    chrome.storage.local.get(['notion_workspaces', 'notion_current_workspace'], function(result) {
-      var workspaces = (result.notion_workspaces || []).filter(function(w) { return w.id !== id; });
-      var currentId = result.notion_current_workspace;
-      if (currentId === id && workspaces.length > 0) {
-        currentId = workspaces[0].id;
-      } else if (currentId === id) {
-        currentId = null;
-      }
-      chrome.storage.local.set({
-        notion_workspaces: workspaces,
-        notion_current_workspace: currentId,
-      }, function() {
-        resolve({ success: true });
-      });
-    });
-  });
 }

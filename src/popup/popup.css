@@ -948,6 +948,111 @@ header h1 {
   background: #8888aa;
 }
 
+/* 登录界面 */
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.login-container h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  color: var(--text-color);
+}
+
+.login-container p {
+  font-size: 12px;
+  color: var(--meta-color);
+  margin: 0 0 20px 0;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 12px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  border: none;
+  border-radius: var(--btn-radius);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.login-btn:hover {
+  opacity: 0.9;
+}
+
+/* 已登录 workspace 信息 */
+.workspace-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--content-bg);
+  border: 1px solid var(--content-border);
+  border-radius: var(--content-radius);
+  margin-bottom: 12px;
+}
+
+.workspace-icon-img {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+#workspace-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+/* 退出登录 */
+.logout-section {
+  margin-top: 4px;
+}
+
+.logout-btn {
+  width: 100%;
+  padding: 8px;
+  background: var(--error-bg, rgba(239, 68, 68, 0.1));
+  color: var(--error-color, #ef4444);
+  border: 1px solid var(--error-border, rgba(239, 68, 68, 0.2));
+  border-radius: var(--btn-radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.logout-btn:hover {
+  opacity: 0.8;
+}
+
+.popup.theme-raycast .login-btn {
+  background: linear-gradient(135deg, #e040fb, #ff5252);
+  color: #fff;
+}
+
+.popup.theme-raycast .workspace-info {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.popup.theme-raycast #workspace-name {
+  color: #d0d0e0;
+}
+
+.popup.theme-raycast .logout-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
 /* ============================================================
    主题 4: Vercel 黑白精准
    ============================================================ */
@@ -1183,5 +1288,25 @@ header h1 {
 
 .popup.theme-vercel .search-icon::after {
   background: #666666;
+}
+
+.popup.theme-vercel .login-btn {
+  background: #000000;
+  color: #ffffff;
+}
+
+.popup.theme-vercel .workspace-info {
+  background: #fafafa;
+  border-color: #eaeaea;
+}
+
+.popup.theme-vercel #workspace-name {
+  color: #333333;
+}
+
+.popup.theme-vercel .logout-btn {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
 }
 
