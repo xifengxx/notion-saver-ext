@@ -1024,6 +1024,48 @@ header h1 {
   color: #ef4444;
 }
 
+/* "在 Notion 中打开" 链接 */
+.open-in-notion {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--content-radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: opacity 0.15s, background 0.15s;
+  color: var(--accent-color);
+  background: var(--content-bg);
+  border: 1px dashed var(--content-border);
+  user-select: none;
+}
+
+.open-in-notion:hover {
+  opacity: 0.8;
+  background: var(--hover-bg);
+}
+
+.open-in-notion::before {
+  content: '↗';
+  font-size: 14px;
+}
+
+.popup.theme-raycast .open-in-notion {
+  color: #e040fb;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.popup.theme-vercel .open-in-notion {
+  color: #000000;
+  background: #fafafa;
+  border-color: #eaeaea;
+}
+
 /* ============================================================
    主题 4: Vercel 黑白精准
    ============================================================ */

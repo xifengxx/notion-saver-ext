@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const pageList = document.getElementById('page-list');
   const pagePickerTrigger = document.getElementById('page-picker-trigger');
   const pagePickerDropdown = document.getElementById('page-picker-dropdown');
+  const openInNotion = document.getElementById('open-in-notion');
 
   var themes = ['raycast', 'vercel'];
   var themeLabels = ['Raycast', 'Vercel'];
@@ -32,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
   var recentPages = [];
   var searchTimeout = null;
   var dropdownOpen = false;
+  var savedPageUrl = null;
 
   // 监听 token 变化（background 轮询完成后触发）
   chrome.storage.onChanged.addListener(function(changes) {
@@ -133,6 +135,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // "在 Notion 中打开" 链接
+  openInNotion.addEventListener('click', () => {
+    if (savedPageUrl) {
+      chrome.tabs.create({ url: savedPageUrl });
+      openInNotion.classList.add('hidden');
+      savedPageUrl = null;
+    }
+  });
+
   // ============================================================
   // 登录与 OAuth
   // ============================================================
@@ -192,6 +203,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
 
   function extractCurrentPage() {
+    // 清除之前的保存状态
+    openInNotion.classList.add('hidden');
+    savedPageUrl = null;
+
     // 延迟 500ms 让动态内容（懒加载图片等）稳定
     setTimeout(function() {
       chrome.runtime.sendMessage({ action: 'extract_content' }, function(response) {
@@ -468,6 +483,12 @@ document.addEventListener('DOMContentLoaded', () => {
         showStatus('保存成功！' + result.blocksCount + ' 个 blocks', 'success');
         saveBtn.textContent = '保存到 Notion';
         saveBtn.disabled = false;
+
+        // 显示"在 Notion 中打开"链接
+        if (result.pageUrl) {
+          savedPageUrl = result.pageUrl;
+          openInNotion.classList.remove('hidden');
+        }
 
         if (targetPage.value) {
           addRecentPage(targetPage.value, pageSearch.value);

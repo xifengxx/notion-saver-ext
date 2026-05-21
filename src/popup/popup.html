@@ -12,7 +12,7 @@
       <h1>Notion Saver</h1>
       <div class="header-actions">
         <button id="theme-btn" class="theme-indicator" title="切换主题">Raycast</button>
-        <button id="settings-btn" class="icon-btn" title="设置">⚙</button>
+        <button id="settings-btn" class="icon-btn" title="设置"></button>
       </div>
     </header>
 
@@ -27,12 +27,6 @@
 
     <!-- Main content (shown when logged in) -->
     <div id="main-content">
-      <!-- Workspace info -->
-      <div class="workspace-info">
-        <img id="workspace-icon" class="workspace-icon-img" src="" alt="">
-        <span id="workspace-name">加载中...</span>
-      </div>
-
       <!-- 1. 内容预览（可编辑标题） -->
       <div class="content-section">
         <div id="content-preview">
@@ -67,6 +61,18 @@
       <!-- 4. 状态反馈 -->
       <div id="status" class="status hidden">
         <p class="status-text"></p>
+      </div>
+
+      <!-- 5. 保存成功后显示"在 Notion 中打开" -->
+      <div id="open-in-notion" class="open-in-notion hidden">
+        在 Notion 中打开
+      </div>
+
+      <!-- 6. 分隔线 + Workspace 信息 -->
+      <div class="divider"></div>
+      <div class="workspace-info">
+        <img id="workspace-icon" class="workspace-icon-img" src="" alt="">
+        <span id="workspace-name">加载中...</span>
       </div>
     </div>
 
