@@ -116,11 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
       }
     }
-    var msg = '确认解绑「' + wsName + '」吗？';
-    if (botId === currentWorkspaceBotId) {
-      msg += '解绑后会自动切换到其他可用空间。';
-    }
-    unbindConfirmText.textContent = msg;
+    unbindConfirmText.textContent = '确认解绑「' + wsName + '」吗？';
     unbindConfirm.classList.remove('hidden');
     pendingUnbindBotId = botId;
   }
