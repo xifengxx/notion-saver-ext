@@ -62,11 +62,13 @@ app.get('/callback', async (req, res) => {
   const tokens = await tokenRes.json();
 
   // Store tokens
+  // Notion Public Integration tokens expire in 24h (86400s). Fallback if expires_in is missing.
+  const expiresIn = (tokens.expires_in && tokens.expires_in > 0) ? tokens.expires_in : 86400;
   const store = readTokens();
   store[session] = {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
-    expires_at: Date.now() + tokens.expires_in * 1000,
+    expires_at: Date.now() + expiresIn * 1000,
     workspace_name: tokens.workspace_name || 'Notion Workspace',
     workspace_icon: tokens.workspace_icon || '',
     bot_id: tokens.bot_id || '',

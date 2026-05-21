@@ -7,6 +7,61 @@ var RATE_LIMIT_DELAY = 400;
 var BLOCK_LIMIT = 100;
 
 // ============================================================
+// OAuth 登录轮询（在 background 运行，不受 popup 关闭影响）
+// ============================================================
+var oauthPollTimers = {};
+
+// 启动 OAuth 登录流程
+function generateSessionId() {
+  var d = Date.now();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = (d + Math.random() * 16) % 16 | 0;
+    d = Math.floor(d / 16);
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function startOAuthLogin() {
+  var sessionId = generateSessionId();
+  chrome.storage.local.set({ oauth_session_id: sessionId });
+
+  chrome.tabs.create({ url: BACKEND_URL + '/auth?session=' + sessionId, active: true });
+
+  // 在 background 轮询，不受 popup 关闭影响
+  oauthPollTimers[sessionId] = { attempts: 0, interval: null };
+  oauthPollTimers[sessionId].interval = setInterval(function() {
+    oauthPollTimers[sessionId].attempts++;
+    if (oauthPollTimers[sessionId].attempts > 30) {
+      clearInterval(oauthPollTimers[sessionId].interval);
+      delete oauthPollTimers[sessionId];
+      return;
+    }
+
+    fetch(BACKEND_URL + '/token?session=' + sessionId)
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data.ready) {
+          clearInterval(oauthPollTimers[sessionId].interval);
+          delete oauthPollTimers[sessionId];
+
+          // 保存 token，storage.onChanged 会通知 popup 刷新
+          chrome.storage.local.set({
+            oauth_access_token: data.access_token,
+            oauth_refresh_token: data.refresh_token,
+            oauth_expires_at: data.expires_at,
+            oauth_workspace_name: data.workspace_name,
+            oauth_workspace_icon: data.workspace_icon,
+            oauth_bot_id: data.bot_id,
+          });
+        }
+      })
+      .catch(function() { /* 继续轮询 */ });
+  }, 2000);
+
+  return sessionId;
+}
+
+// ============================================================
 // 消息路由
 // ============================================================
 chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
@@ -49,13 +104,21 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     return true;
   }
 
+  if (message.action === 'start_oauth_login') {
+    sendResponse({ sessionId: startOAuthLogin() });
+    return true;
+  }
+
   if (message.action === 'fetch_pages') {
+    console.log('[Notion Saver] fetch_pages request, query:', message.query);
     getValidToken().then(function(token) {
+      console.log('[Notion Saver] fetch_pages got token:', token ? 'yes (length ' + token.length + ')' : 'NO');
       if (!token) {
         sendResponse({ success: false, error: '未登录，请先连接到 Notion', pages: [], databases: [] });
         return;
       }
       fetchNotionPages(token, message.query).then(sendResponse).catch(function(err) {
+        console.error('[Notion Saver] fetch_pages error:', err);
         sendResponse({ success: false, error: err.message || '获取失败', pages: [], databases: [] });
       });
     });
@@ -74,24 +137,30 @@ function getValidToken() {
       'oauth_refresh_token',
       'oauth_expires_at',
     ], function(result) {
+      console.log('[Notion Saver] getValidToken:', {
+        has_token: !!result.oauth_access_token,
+        expires_at: result.oauth_expires_at,
+        now: Date.now(),
+      });
       if (!result.oauth_access_token) {
         resolve(null);
         return;
       }
 
-      // 检查是否过期（提前 1 分钟）
+      // Notion Public Integration 的 token 可能没有过期时间（expires_at = 0 或不存在）
       var expiresAt = result.oauth_expires_at || 0;
-      if (Date.now() > expiresAt - 60000) {
-        // Token 即将过期，尝试刷新
+      if (expiresAt > 0 && Date.now() > expiresAt - 60000) {
+        console.log('[Notion Saver] Token expired, attempting refresh');
         if (result.oauth_refresh_token) {
           refreshToken(result.oauth_refresh_token).then(function(newTokens) {
+            console.log('[Notion Saver] Token refreshed successfully');
             resolve(newTokens.access_token);
-          }).catch(function() {
-            // 刷新失败，返回 null，提示用户重新登录
+          }).catch(function(err) {
+            console.log('[Notion Saver] Token refresh failed:', err.message);
             resolve(null);
           });
         } else {
-          resolve(null);
+          resolve(result.oauth_access_token);
         }
       } else {
         resolve(result.oauth_access_token);
@@ -328,9 +397,8 @@ function fetchNotionPages(token, query) {
 
   if (query && query.trim()) {
     searchBody.query = query.trim();
-  } else {
-    searchBody.filter = { property: 'object', value: 'database' };
   }
+  // 不再限制只返回数据库，默认返回所有页面和数据库
 
   return notionFetch('/v1/search', token, {
     method: 'POST',

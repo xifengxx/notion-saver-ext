@@ -1,6 +1,5 @@
 // Popup UI 逻辑 — OAuth 版本
 document.addEventListener('DOMContentLoaded', () => {
-  const BACKEND_URL = 'https://notion-saver-ext-production.up.railway.app';
 
   // 主界面元素
   const loginScreen = document.getElementById('login-screen');
@@ -34,6 +33,17 @@ document.addEventListener('DOMContentLoaded', () => {
   var recentPages = [];
   var searchTimeout = null;
   var dropdownOpen = false;
+
+  // 监听 token 变化（background 轮询完成后触发）
+  chrome.storage.onChanged.addListener(function(changes) {
+    if (changes.oauth_access_token && changes.oauth_access_token.newValue) {
+      showSettingsStatus('登录成功！', 'success');
+      setTimeout(function() {
+        settingsPanel.classList.add('hidden');
+      }, 1000);
+      checkLogin();
+    }
+  });
 
   // 打开时检查登录状态
   checkLogin();
@@ -165,52 +175,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function startOAuthLogin() {
-    const sessionId = crypto.randomUUID();
-    const authUrl = `${BACKEND_URL}/auth?session=${sessionId}`;
-
-    // 打开 OAuth 授权页
-    chrome.tabs.create({ url: authUrl, active: true });
-
-    // 轮询获取 token
-    showSettingsStatus('正在等待授权...', 'loading-status');
-    let attempts = 0;
-    const maxAttempts = 30;
-
-    const pollInterval = setInterval(() => {
-      attempts++;
-      if (attempts > maxAttempts) {
-        clearInterval(pollInterval);
-        showSettingsStatus('授权超时，请重试', 'error');
+    // 交给 background service worker 去轮询（不受 popup 关闭影响）
+    chrome.runtime.sendMessage({ action: 'start_oauth_login' }, function(response) {
+      if (chrome.runtime.lastError) {
+        showSettingsStatus('后台服务未启动，请重启扩展', 'error');
         return;
       }
-
-      fetch(`${BACKEND_URL}/token?session=${sessionId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.ready) {
-            clearInterval(pollInterval);
-
-            // 保存 token
-            chrome.storage.local.set({
-              oauth_access_token: data.access_token,
-              oauth_refresh_token: data.refresh_token,
-              oauth_expires_at: data.expires_at,
-              oauth_workspace_name: data.workspace_name,
-              oauth_workspace_icon: data.workspace_icon,
-              oauth_bot_id: data.bot_id,
-            }, () => {
-              showSettingsStatus('登录成功！', 'success');
-              setTimeout(() => {
-                settingsPanel.classList.add('hidden');
-                checkLogin();
-              }, 1000);
-            });
-          }
-        })
-        .catch(() => {
-          // 网络错误，继续轮询
-        });
-    }, 2000);
+      // background 已开始轮询，storage.onChanged 会在 token 到位后触发 checkLogin
+      showSettingsStatus('正在等待授权...', 'loading-status');
+    });
   }
 
   // ============================================================
