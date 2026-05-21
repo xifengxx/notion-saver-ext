@@ -109,18 +109,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 页面选择器（可搜索下拉框）
+  // 页面选择器（可搜索下拉框）— 只用点击事件，不用 focus 事件
   pagePickerTrigger.addEventListener('click', () => {
     if (dropdownOpen) {
       closeDropdown();
     } else {
-      openDropdown();
-    }
-  });
-
-  // 搜索框获得焦点时自动打开下拉框
-  pageSearch.addEventListener('focus', () => {
-    if (!dropdownOpen) {
       openDropdown();
     }
   });
