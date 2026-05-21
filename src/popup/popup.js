@@ -22,7 +22,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const pageList = document.getElementById('page-list');
   const pagePickerTrigger = document.getElementById('page-picker-trigger');
   const pagePickerDropdown = document.getElementById('page-picker-dropdown');
-  const pagePickerLabel = document.getElementById('page-picker-label');
 
   var themes = ['raycast', 'vercel'];
   var themeLabels = ['Raycast', 'Vercel'];
@@ -110,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 页面选择器
+  // 页面选择器（可搜索下拉框）
   pagePickerTrigger.addEventListener('click', () => {
     if (dropdownOpen) {
       closeDropdown();
@@ -119,17 +118,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.addEventListener('click', (e) => {
-    if (dropdownOpen && !pagePickerDropdown.contains(e.target) && e.target !== pagePickerTrigger && !pagePickerTrigger.contains(e.target)) {
-      closeDropdown();
+  // 搜索框获得焦点时自动打开下拉框
+  pageSearch.addEventListener('focus', () => {
+    if (!dropdownOpen) {
+      openDropdown();
     }
   });
 
+  // 搜索输入实时过滤
   pageSearch.addEventListener('input', () => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
       filterPages(pageSearch.value.trim());
     }, 300);
+  });
+
+  // 点击外部关闭下拉
+  document.addEventListener('click', (e) => {
+    if (dropdownOpen && !pagePickerDropdown.contains(e.target) && e.target !== pagePickerTrigger && !pagePickerTrigger.contains(e.target)) {
+      closeDropdown();
+    }
   });
 
   // ============================================================
@@ -291,7 +299,9 @@ document.addEventListener('DOMContentLoaded', () => {
         allDatabases = result.databases || [];
         allPages = result.pages || [];
         targetPage.value = '';
-        pagePickerLabel.textContent = '选择目标页面...';
+        pageSearch.value = '';
+        pageSearch.placeholder = '选择或搜索目标页面...';
+        pageSearch.classList.remove('has-value');
         renderPageList(allDatabases, allPages);
       } else {
         pageList.innerHTML = '<div class="page-list-empty">' + escapeHtml(result ? result.error : '加载失败') + '</div>';
@@ -303,7 +313,10 @@ document.addEventListener('DOMContentLoaded', () => {
     dropdownOpen = true;
     pagePickerDropdown.classList.remove('hidden');
     document.querySelector('.popup').classList.add('dropdown-active');
+    // 保留已选中的页面名称，只清空搜索关键词
+    var selectedTitle = targetPage.value ? pageSearch.value : '';
     pageSearch.value = '';
+    pageSearch.placeholder = selectedTitle || '选择或搜索目标页面...';
     pageSearch.focus();
     filterPages('');
   }
@@ -312,7 +325,18 @@ document.addEventListener('DOMContentLoaded', () => {
     dropdownOpen = false;
     pagePickerDropdown.classList.add('hidden');
     document.querySelector('.popup').classList.remove('dropdown-active');
-    pageSearch.value = '';
+    // 恢复已选中的页面名称，或恢复默认 placeholder
+    if (targetPage.value && pageSearch.value === '') {
+      var selectedTitle = pageSearch.placeholder;
+      if (selectedTitle && selectedTitle !== '选择或搜索目标页面...') {
+        pageSearch.value = selectedTitle;
+        pageSearch.classList.add('has-value');
+      }
+    } else if (!targetPage.value) {
+      pageSearch.value = '';
+      pageSearch.placeholder = '选择或搜索目标页面...';
+      pageSearch.classList.remove('has-value');
+    }
   }
 
   function filterPages(query) {
@@ -415,7 +439,8 @@ document.addEventListener('DOMContentLoaded', () => {
         var id = this.getAttribute('data-id');
         var title = this.querySelector('.page-title').textContent;
         targetPage.value = id;
-        pagePickerLabel.textContent = title;
+        pageSearch.value = title;
+        pageSearch.classList.add('has-value');
         closeDropdown();
       });
     });
@@ -452,7 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveBtn.disabled = false;
 
         if (targetPage.value) {
-          addRecentPage(targetPage.value, pagePickerLabel.textContent);
+          addRecentPage(targetPage.value, pageSearch.value);
         }
 
         setTimeout(() => {

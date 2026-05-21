@@ -42,20 +42,16 @@
 
       <div class="divider"></div>
 
-      <!-- 2. 保存到 Notion 页面选择器 -->
+      <!-- 2. 保存到 Notion 页面选择器（可搜索下拉框） -->
       <div class="save-section">
         <label>保存到：</label>
         <div class="card">
           <div class="page-picker-trigger" id="page-picker-trigger">
-            <span id="page-picker-label">选择目标页面...</span>
+            <input type="text" id="page-search" placeholder="选择或搜索目标页面..." autocomplete="off">
             <span class="page-picker-arrow">▾</span>
           </div>
         </div>
         <div id="page-picker-dropdown" class="page-picker-dropdown hidden">
-          <div class="search-box">
-            <input type="text" id="page-search" placeholder="搜索页面或数据库..." autocomplete="off">
-            <span class="search-icon"></span>
-          </div>
           <div id="page-list" class="page-list">
             <div class="page-list-loading">加载中...</div>
           </div>
