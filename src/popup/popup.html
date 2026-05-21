@@ -72,9 +72,11 @@
       <div class="divider"></div>
       <div class="workspace-section">
         <label>空间</label>
-        <select id="workspace-select">
-          <option value="">加载中...</option>
-        </select>
+        <div class="card">
+          <select id="workspace-select">
+            <option value="">加载中...</option>
+          </select>
+        </div>
         <button id="add-workspace-btn" class="icon-btn small" title="添加空间">+</button>
       </div>
     </div>
@@ -92,6 +94,12 @@
             <option value="url">使用图片 URL</option>
             <option value="base64">转为 Base64</option>
           </select>
+        </div>
+        <div class="divider"></div>
+        <div class="workspace-manage">
+          <h3>已连接的空间</h3>
+          <p class="hint">点击 + 按钮可授权新的 Notion 账号</p>
+          <div id="settings-workspace-list" class="workspace-list"></div>
         </div>
         <div class="divider"></div>
         <div class="logout-section">

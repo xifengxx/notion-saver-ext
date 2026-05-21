@@ -1,4 +1,4 @@
-// Background Service Worker — Notion API 集成 (OAuth 版本)
+// Background Service Worker — Notion API 集成 (OAuth 多空间版本)
 // Blocks 由 content script 通过 DOM 遍历转换，保持原始顺序
 
 var NOTION_API = 'https://api.notion.com';
@@ -11,7 +11,6 @@ var BLOCK_LIMIT = 100;
 // ============================================================
 var oauthPollTimers = {};
 
-// 启动 OAuth 登录流程
 function generateSessionId() {
   var d = Date.now();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -27,7 +26,6 @@ function startOAuthLogin() {
 
   chrome.tabs.create({ url: BACKEND_URL + '/auth?session=' + sessionId, active: true });
 
-  // 在 background 轮询，不受 popup 关闭影响
   oauthPollTimers[sessionId] = { attempts: 0, interval: null };
   oauthPollTimers[sessionId].interval = setInterval(function() {
     oauthPollTimers[sessionId].attempts++;
@@ -44,14 +42,36 @@ function startOAuthLogin() {
           clearInterval(oauthPollTimers[sessionId].interval);
           delete oauthPollTimers[sessionId];
 
-          // 保存 token，storage.onChanged 会通知 popup 刷新
-          chrome.storage.local.set({
-            oauth_access_token: data.access_token,
-            oauth_refresh_token: data.refresh_token,
-            oauth_expires_at: data.expires_at,
-            oauth_workspace_name: data.workspace_name,
-            oauth_workspace_icon: data.workspace_icon,
-            oauth_bot_id: data.bot_id,
+          // 获取已有的 workspace 列表
+          chrome.storage.local.get(['notion_workspaces', 'notion_current_workspace_bot_id'], function(result) {
+            var workspaces = result.notion_workspaces || [];
+            var currentBotId = result.notion_current_workspace_bot_id || null;
+            var botId = data.bot_id;
+
+            // 检查是否已有该空间
+            var existing = workspaces.filter(function(ws) { return ws.bot_id === botId; });
+            if (existing.length > 0) {
+              // 更新 token
+              existing[0].access_token = data.access_token;
+              existing[0].refresh_token = data.refresh_token;
+              existing[0].expires_at = data.expires_at;
+            } else {
+              // 新空间
+              workspaces.push({
+                bot_id: botId,
+                access_token: data.access_token,
+                refresh_token: data.refresh_token,
+                expires_at: data.expires_at,
+                workspace_name: data.workspace_name,
+                workspace_icon: data.workspace_icon,
+              });
+              currentBotId = botId;
+            }
+
+            chrome.storage.local.set({
+              notion_workspaces: workspaces,
+              notion_current_workspace_bot_id: currentBotId,
+            });
           });
         }
       })
@@ -83,7 +103,8 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   }
 
   if (message.action === 'save_to_notion') {
-    saveToNotion(message.data, message.targetPage).then(sendResponse).catch(function(err) {
+    var botId = message.workspaceBotId || null;
+    saveToNotion(message.data, message.targetPage, botId).then(sendResponse).catch(function(err) {
       console.error('[Notion Saver] Unhandled error in saveToNotion:', err);
       sendResponse({ success: false, error: err.message || '保存失败' });
     });
@@ -125,34 +146,47 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
 });
 
 // ============================================================
-// Token 管理
+// Token 管理（多空间）
 // ============================================================
 
 function getValidToken() {
   return new Promise(function(resolve) {
     chrome.storage.local.get([
-      'oauth_access_token',
-      'oauth_refresh_token',
-      'oauth_expires_at',
+      'notion_workspaces',
+      'notion_current_workspace_bot_id',
     ], function(result) {
-      if (!result.oauth_access_token) {
+      var workspaces = result.notion_workspaces || [];
+      var currentBotId = result.notion_current_workspace_bot_id;
+
+      if (!currentBotId || workspaces.length === 0) {
         resolve(null);
         return;
       }
 
-      var expiresAt = result.oauth_expires_at || 0;
+      var ws = workspaces.find(function(w) { return w.bot_id === currentBotId; });
+      if (!ws) {
+        resolve(null);
+        return;
+      }
+
+      var expiresAt = ws.expires_at || 0;
       if (expiresAt > 0 && Date.now() > expiresAt - 60000) {
-        if (result.oauth_refresh_token) {
-          refreshToken(result.oauth_refresh_token).then(function(newTokens) {
-            resolve(newTokens.access_token);
+        if (ws.refresh_token) {
+          refreshToken(ws.refresh_token).then(function(newTokens) {
+            // 更新该 workspace 的 token
+            ws.access_token = newTokens.access_token;
+            ws.refresh_token = newTokens.refresh_token;
+            ws.expires_at = newTokens.expires_at;
+            chrome.storage.local.set({ notion_workspaces: workspaces });
+            resolve(ws.access_token);
           }).catch(function() {
             resolve(null);
           });
         } else {
-          resolve(result.oauth_access_token);
+          resolve(ws.access_token);
         }
       } else {
-        resolve(result.oauth_access_token);
+        resolve(ws.access_token);
       }
     });
   });
@@ -169,22 +203,14 @@ function refreshToken(refreshTokenValue) {
     }
     return res.json();
   }).then(function(tokens) {
-    return new Promise(function(resolve) {
-      chrome.storage.local.set({
-        oauth_access_token: tokens.access_token,
-        oauth_refresh_token: tokens.refresh_token,
-        oauth_expires_at: tokens.expires_at,
-      }, function() {
-        resolve(tokens);
-      });
-    });
+    return tokens;
   });
 }
 
 // ============================================================
 // Notion API 核心保存流程
 // ============================================================
-function saveToNotion(data, parentPageId) {
+function saveToNotion(data, parentPageId, workspaceBotId) {
   return getValidToken().then(function(token) {
     if (!token) {
       return { success: false, error: '未登录或认证已过期，请重新登录' };
@@ -228,7 +254,6 @@ function saveToNotion(data, parentPageId) {
   });
 }
 
-// 递归追加 blocks，含重试机制
 function appendAllBlocks(token, pageId, chunks, index) {
   if (index >= chunks.length) {
     return Promise.resolve();
@@ -243,10 +268,8 @@ function appendAllBlocks(token, pageId, chunks, index) {
   });
 }
 
-// 追加单个 block 批次，带重试
 function appendBlocksWithRetry(token, pageId, blocks, maxRetries) {
   return appendBlocks(token, pageId, blocks).catch(function(err) {
-    // 网络错误（Service Worker 休眠后）重试
     if (maxRetries > 0 && err.message && err.message.indexOf('fetch') >= 0) {
       console.log('[Notion Saver] Append blocks failed, retrying... (' + (3 - maxRetries + 1) + '/3)');
       return delay(2000).then(function() {
@@ -401,7 +424,6 @@ function fetchNotionPages(token, query) {
   if (query && query.trim()) {
     searchBody.query = query.trim();
   }
-  // 不再限制只返回数据库，默认返回所有页面和数据库
 
   return notionFetch('/v1/search', token, {
     method: 'POST',
@@ -506,9 +528,6 @@ function notionFetch(path, token, options) {
         throw new Error(errorMsg);
       });
     }).catch(function(err) {
-      // Only retry on actual network failures (request never reached server).
-      // Do NOT retry on response.json() failures — the request was already sent,
-      // so retrying would duplicate the operation (e.g., duplicate blocks).
       if (err instanceof TypeError && err.message === 'Failed to fetch' && attempt < maxRetries) {
         return delay(1000 * attempt).then(doFetch);
       }

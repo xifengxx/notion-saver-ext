@@ -414,15 +414,24 @@ header h1 {
   letter-spacing: 0.5px;
 }
 
+.workspace-section .card {
+  flex: 1;
+  display: flex;
+  padding: 0;
+}
+
 .workspace-select {
   flex: 1;
-  padding: 6px 8px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
+  padding: 8px 10px;
+  border: none;
   border-radius: 8px;
   font-size: 13px;
-  background: rgba(128, 128, 128, 0.04);
+  background: transparent;
   color: inherit;
   cursor: pointer;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .workspace-select option {
@@ -819,9 +828,12 @@ header h1 {
   color: #666680;
 }
 
-.popup.theme-raycast .workspace-select {
+.popup.theme-raycast .workspace-section .card {
   background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.popup.theme-raycast .workspace-select {
   color: #d0d0e0;
 }
 
@@ -1202,9 +1214,12 @@ header h1 {
   color: #999999;
 }
 
-.popup.theme-vercel .workspace-select {
-  background: #ffffff;
+.popup.theme-vercel .workspace-section .card {
+  background: #fafafa;
   border-color: #eaeaea;
+}
+
+.popup.theme-vercel .workspace-select {
   color: #333333;
 }
 
