@@ -40,15 +40,17 @@ app.get('/callback', async (req, res) => {
   if (!code || !session) return res.status(400).send('Missing code or session');
 
   // Exchange code for tokens
+  const credentials = Buffer.from(`${NOTION_CLIENT_ID}:${NOTION_CLIENT_SECRET}`).toString('base64');
   const tokenRes = await fetch('https://api.notion.com/v1/oauth/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Basic ${credentials}`,
+    },
     body: JSON.stringify({
       grant_type: 'authorization_code',
       code,
       redirect_uri: NOTION_REDIRECT_URI,
-      client_id: NOTION_CLIENT_ID,
-      client_secret: NOTION_CLIENT_SECRET,
     }),
   });
 
@@ -111,15 +113,17 @@ app.post('/refresh', async (req, res) => {
   if (!refresh_token) return res.status(400).json({ error: 'Missing refresh_token' });
 
   try {
+    const credentials = Buffer.from(`${NOTION_CLIENT_ID}:${NOTION_CLIENT_SECRET}`).toString('base64');
     const tokenRes = await fetch('https://api.notion.com/v1/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${credentials}`,
+      },
       body: JSON.stringify({
         grant_type: 'refresh_token',
         refresh_token,
         redirect_uri: NOTION_REDIRECT_URI,
-        client_id: NOTION_CLIENT_ID,
-        client_secret: NOTION_CLIENT_SECRET,
       }),
     });
 
