@@ -506,8 +506,10 @@ function notionFetch(path, token, options) {
         throw new Error(errorMsg);
       });
     }).catch(function(err) {
-      if (err instanceof TypeError && attempt < maxRetries) {
-        console.log('[Notion Saver] Network error, retrying (' + attempt + '/' + maxRetries + '): ' + err.message);
+      // Only retry on actual network failures (request never reached server).
+      // Do NOT retry on response.json() failures — the request was already sent,
+      // so retrying would duplicate the operation (e.g., duplicate blocks).
+      if (err instanceof TypeError && err.message === 'Failed to fetch' && attempt < maxRetries) {
         return delay(1000 * attempt).then(doFetch);
       }
       throw err;
