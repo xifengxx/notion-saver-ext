@@ -401,7 +401,6 @@ header h1 {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
   margin-bottom: 0;
 }
 
@@ -414,19 +413,27 @@ header h1 {
   letter-spacing: 0.5px;
 }
 
-.workspace-select {
+.workspace-card {
   flex: 1;
+}
+
+.workspace-card select {
+  width: 100%;
   padding: 8px 10px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: none;
   border-radius: 8px;
   font-size: 13px;
-  background: rgba(128, 128, 128, 0.04);
+  background: transparent;
   color: inherit;
   cursor: pointer;
   outline: none;
   -webkit-appearance: none;
   appearance: none;
-  min-height: 38px;
+}
+
+.workspace-card select option {
+  background: var(--dropdown-bg);
+  color: var(--secondary-text);
 }
 
 .workspace-select option {
@@ -850,13 +857,16 @@ header h1 {
   color: #666680;
 }
 
-.popup.theme-raycast .workspace-select {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.12);
+.popup.theme-raycast .workspace-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.popup.theme-raycast .workspace-card select {
   color: #d0d0e0;
 }
 
-.popup.theme-raycast .workspace-select option {
+.popup.theme-raycast .workspace-card select option {
   background: #252540;
   color: #d0d0e0;
 }
@@ -1233,13 +1243,16 @@ header h1 {
   color: #999999;
 }
 
-.popup.theme-vercel .workspace-select {
-  background: #ffffff;
+.popup.theme-vercel .workspace-card {
+  background: #fafafa;
   border-color: #eaeaea;
+}
+
+.popup.theme-vercel .workspace-card select {
   color: #333333;
 }
 
-.popup.theme-vercel .workspace-select option {
+.popup.theme-vercel .workspace-card select option {
   background: #ffffff;
   color: #333333;
 }

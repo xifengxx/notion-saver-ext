@@ -72,10 +72,12 @@
       <div class="divider"></div>
       <div class="workspace-section">
         <label>空间</label>
-        <select id="workspace-select">
-          <option value="">加载中...</option>
-        </select>
-        <button id="add-workspace-btn" class="icon-btn small" title="添加空间">+</button>
+        <div class="card workspace-card">
+          <select id="workspace-select">
+            <option value="">加载中...</option>
+          </select>
+        </div>
+        <button class="icon-btn small add-ws-btn-main" title="添加空间">+</button>
       </div>
     </div>
 
@@ -98,7 +100,7 @@
           <h3>已连接的空间</h3>
           <div class="workspace-header">
             <p class="hint" style="margin:0">点击 + 按钮可授权新的 Notion 账号</p>
-            <button id="add-workspace-btn" class="settings-add-btn" title="添加空间">+</button>
+            <button class="settings-add-btn" title="添加空间">+</button>
           </div>
           <div id="settings-workspace-list" class="workspace-list"></div>
         </div>

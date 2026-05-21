@@ -150,6 +150,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // 两个 + 按钮都绑定添加空间
+  document.querySelectorAll('.add-ws-btn-main, .settings-add-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      startOAuthLogin();
+    });
+  });
+
   // ============================================================
   // 登录与 OAuth
   // ============================================================
