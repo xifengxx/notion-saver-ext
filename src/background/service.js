@@ -110,9 +110,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   }
 
   if (message.action === 'fetch_pages') {
-    console.log('[Notion Saver] fetch_pages request, query:', message.query);
     getValidToken().then(function(token) {
-      console.log('[Notion Saver] fetch_pages got token:', token ? 'yes (length ' + token.length + ')' : 'NO');
       if (!token) {
         sendResponse({ success: false, error: '未登录，请先连接到 Notion', pages: [], databases: [] });
         return;
@@ -137,26 +135,17 @@ function getValidToken() {
       'oauth_refresh_token',
       'oauth_expires_at',
     ], function(result) {
-      console.log('[Notion Saver] getValidToken:', {
-        has_token: !!result.oauth_access_token,
-        expires_at: result.oauth_expires_at,
-        now: Date.now(),
-      });
       if (!result.oauth_access_token) {
         resolve(null);
         return;
       }
 
-      // Notion Public Integration 的 token 可能没有过期时间（expires_at = 0 或不存在）
       var expiresAt = result.oauth_expires_at || 0;
       if (expiresAt > 0 && Date.now() > expiresAt - 60000) {
-        console.log('[Notion Saver] Token expired, attempting refresh');
         if (result.oauth_refresh_token) {
           refreshToken(result.oauth_refresh_token).then(function(newTokens) {
-            console.log('[Notion Saver] Token refreshed successfully');
             resolve(newTokens.access_token);
-          }).catch(function(err) {
-            console.log('[Notion Saver] Token refresh failed:', err.message);
+          }).catch(function() {
             resolve(null);
           });
         } else {
@@ -425,7 +414,6 @@ function fetchNotionPages(token, query) {
       }
     }
 
-    console.log('[Notion Saver] Found ' + databases.length + ' databases, ' + pages.length + ' pages');
     return { success: true, pages: pages, databases: databases };
   }).catch(function(err) {
     console.error('[Notion Saver] Fetch pages failed:', err);
