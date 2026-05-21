@@ -228,18 +228,32 @@ function saveToNotion(data, parentPageId) {
   });
 }
 
-// 递归追加 blocks，避免 Service Worker 休眠
+// 递归追加 blocks，含重试机制
 function appendAllBlocks(token, pageId, chunks, index) {
   if (index >= chunks.length) {
     return Promise.resolve();
   }
-  return appendBlocks(token, pageId, chunks[index]).then(function() {
+  return appendBlocksWithRetry(token, pageId, chunks[index], 3).then(function() {
     if (index < chunks.length - 1) {
       return delay(RATE_LIMIT_DELAY).then(function() {
         return appendAllBlocks(token, pageId, chunks, index + 1);
       });
     }
     return Promise.resolve();
+  });
+}
+
+// 追加单个 block 批次，带重试
+function appendBlocksWithRetry(token, pageId, blocks, maxRetries) {
+  return appendBlocks(token, pageId, blocks).catch(function(err) {
+    // 网络错误（Service Worker 休眠后）重试
+    if (maxRetries > 0 && err.message && err.message.indexOf('fetch') >= 0) {
+      console.log('[Notion Saver] Append blocks failed, retrying... (' + (3 - maxRetries + 1) + '/3)');
+      return delay(2000).then(function() {
+        return appendBlocksWithRetry(token, pageId, blocks, maxRetries - 1);
+      });
+    }
+    throw err;
   });
 }
 
