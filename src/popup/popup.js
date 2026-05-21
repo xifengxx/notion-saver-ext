@@ -15,8 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeSettings = document.getElementById('close-settings');
   const saveSettings = document.getElementById('save-settings');
   const logoutBtn = document.getElementById('logout-btn');
-  const workspaceIcon = document.getElementById('workspace-icon');
-  const workspaceName = document.getElementById('workspace-name');
+  const workspaceSelect = document.getElementById('workspace-select');
+  const addWorkspaceBtn = document.getElementById('add-workspace-btn');
   const themeBtn = document.getElementById('theme-btn');
   const pageSearch = document.getElementById('page-search');
   const pageList = document.getElementById('page-list');
@@ -111,6 +111,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // 添加新空间（启动新 OAuth 登录）
+  addWorkspaceBtn.addEventListener('click', () => {
+    startOAuthLogin();
+  });
+
   // 页面选择器（可搜索下拉框）— 只用点击事件，不用 focus 事件
   pagePickerTrigger.addEventListener('click', () => {
     if (dropdownOpen) {
@@ -162,13 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 显示 workspace 信息
         if (result.oauth_workspace_name) {
-          workspaceName.textContent = result.oauth_workspace_name;
-        }
-        if (result.oauth_workspace_icon) {
-          workspaceIcon.src = result.oauth_workspace_icon;
-          workspaceIcon.style.display = '';
-        } else {
-          workspaceIcon.style.display = 'none';
+          workspaceSelect.innerHTML = '<option value="' + escapeHtml(result.oauth_access_token) + '">' + escapeHtml(result.oauth_workspace_name) + '</option>';
         }
 
         // 加载数据
