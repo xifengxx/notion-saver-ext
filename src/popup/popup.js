@@ -299,6 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function openDropdown() {
     dropdownOpen = true;
     pagePickerDropdown.classList.remove('hidden');
+    document.querySelector('.popup').classList.add('dropdown-active');
     pageSearch.value = '';
     pageSearch.focus();
     filterPages('');
@@ -307,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function closeDropdown() {
     dropdownOpen = false;
     pagePickerDropdown.classList.add('hidden');
+    document.querySelector('.popup').classList.remove('dropdown-active');
     pageSearch.value = '';
   }
 

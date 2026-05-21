@@ -193,6 +193,12 @@ header h1 {
   margin-left: 8px;
 }
 
+/* 下拉框打开时，popup 扩展高度以容纳下拉框，只保留内部滚动 */
+.popup.dropdown-active {
+  max-height: 800px;
+  overflow: hidden;
+}
+
 #page-picker-label {
   font-size: 13px;
   color: var(--meta-color);
@@ -202,20 +208,16 @@ header h1 {
 }
 
 .page-picker-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
   background: var(--dropdown-bg);
   border: 1px solid var(--dropdown-border);
   border-radius: var(--input-radius);
   box-shadow: var(--dropdown-shadow);
-  z-index: 200;
   padding: 8px;
   box-sizing: border-box;
   margin-top: 4px;
-  max-height: 400px;
+  max-height: 300px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .search-box {
