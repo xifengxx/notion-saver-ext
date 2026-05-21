@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeSettings = document.getElementById('close-settings');
   const saveSettings = document.getElementById('save-settings');
   const settingsWorkspaceList = document.getElementById('settings-workspace-list');
+  const unbindConfirm = document.getElementById('unbind-confirm');
+  const unbindConfirmText = document.getElementById('unbind-confirm-text');
+  const unbindConfirmCancel = document.getElementById('unbind-confirm-cancel');
+  const unbindConfirmOk = document.getElementById('unbind-confirm-ok');
   const workspaceSelect = document.getElementById('workspace-select');
   const themeBtn = document.getElementById('theme-btn');
   const pageSearch = document.getElementById('page-search');
@@ -34,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
   var savedPageUrl = null;
   var workspaces = [];
   var currentWorkspaceBotId = null;
+  var pendingUnbindBotId = null;
 
   // 监听 storage 变化
   chrome.storage.onChanged.addListener(function(changes) {
@@ -84,7 +89,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
   closeSettings.addEventListener('click', () => {
     settingsPanel.classList.add('hidden');
+    hideUnbindConfirm();
   });
+
+  // 解绑确认
+  unbindConfirmCancel.addEventListener('click', () => {
+    hideUnbindConfirm();
+    pendingUnbindBotId = null;
+  });
+
+  unbindConfirmOk.addEventListener('click', () => {
+    if (pendingUnbindBotId) {
+      executeUnbind(pendingUnbindBotId);
+    }
+  });
+
+  function hideUnbindConfirm() {
+    unbindConfirm.classList.add('hidden');
+  }
+
+  function showUnbindConfirm(botId) {
+    var wsName = '';
+    for (var i = 0; i < workspaces.length; i++) {
+      if (workspaces[i].bot_id === botId) {
+        wsName = workspaces[i].workspace_name || 'Notion';
+        break;
+      }
+    }
+    var msg = '确认解绑「' + wsName + '」吗？';
+    if (botId === currentWorkspaceBotId) {
+      msg += '解绑后会自动切换到其他可用空间。';
+    }
+    unbindConfirmText.textContent = msg;
+    unbindConfirm.classList.remove('hidden');
+    pendingUnbindBotId = botId;
+  }
 
   saveSettings.addEventListener('click', () => {
     const imageMode = document.getElementById('image-mode').value;
@@ -225,20 +264,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function removeWorkspace(botId) {
-    var wsName = '';
-    for (var i = 0; i < workspaces.length; i++) {
-      if (workspaces[i].bot_id === botId) {
-        wsName = workspaces[i].workspace_name || 'Notion';
-        break;
-      }
-    }
+    showUnbindConfirm(botId);
+  }
 
-    var msg = '确认解绑「' + wsName + '」吗？';
-    if (botId === currentWorkspaceBotId) {
-      msg += '\n解绑后会自动切换到其他可用空间。';
-    }
-
-    if (!confirm(msg)) return;
+  function executeUnbind(botId) {
+    hideUnbindConfirm();
+    pendingUnbindBotId = null;
 
     workspaces = workspaces.filter(function(ws) { return ws.bot_id !== botId; });
     if (botId === currentWorkspaceBotId) {
