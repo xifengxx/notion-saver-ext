@@ -416,12 +416,11 @@ header h1 {
 
 .workspace-section .card {
   flex: 1;
-  display: flex;
-  padding: 0;
+  display: block;
 }
 
 .workspace-select {
-  flex: 1;
+  width: 100%;
   padding: 8px 10px;
   border: none;
   border-radius: 8px;
@@ -707,7 +706,7 @@ header h1 {
   -webkit-text-fill-color: transparent;
 }
 
-.popup.theme-raycast .icon-btn {
+.popup.theme-raycast header .icon-btn {
   color: #8888aa;
 }
 

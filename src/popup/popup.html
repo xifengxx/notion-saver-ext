@@ -12,7 +12,7 @@
       <h1>Notion Saver</h1>
       <div class="header-actions">
         <button id="theme-btn" class="theme-indicator" title="切换主题">Raycast</button>
-        <button id="settings-btn" class="icon-btn" title="设置"></button>
+        <button id="settings-btn" class="icon-btn" title="设置">⚙</button>
       </div>
     </header>
 
@@ -101,9 +101,10 @@
           <p class="hint">点击 + 按钮可授权新的 Notion 账号</p>
           <div id="settings-workspace-list" class="workspace-list"></div>
         </div>
-        <div class="divider"></div>
-        <div class="logout-section">
-          <button id="logout-btn" class="logout-btn">退出登录</button>
+        <div class="divider" id="settings-logout-divider"></div>
+        <div class="logout-section" id="settings-logout-section">
+          <p class="hint">解绑后将无法使用该空间的页面保存功能</p>
+          <button id="logout-btn" class="logout-btn">解绑当前空间</button>
         </div>
         <div class="divider"></div>
         <div id="settings-status" class="status hidden" style="margin-top:12px">

@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const workspaceSelect = document.getElementById('workspace-select');
   const addWorkspaceBtn = document.getElementById('add-workspace-btn');
   const settingsWorkspaceList = document.getElementById('settings-workspace-list');
+  const settingsLogoutSection = document.getElementById('settings-logout-section');
+  const settingsLogoutDivider = document.getElementById('settings-logout-divider');
   const themeBtn = document.getElementById('theme-btn');
   const pageSearch = document.getElementById('page-search');
   const pageList = document.getElementById('page-list');
@@ -31,24 +33,21 @@ document.addEventListener('DOMContentLoaded', () => {
   var extractedData = null;
   var allPages = [];
   var allDatabases = [];
-  var recentPages = [];
   var searchTimeout = null;
   var dropdownOpen = false;
   var savedPageUrl = null;
   var workspaces = [];
   var currentWorkspaceBotId = null;
 
-  // 监听 token 变化（background 轮询完成后触发）
+  // 监听 storage 变化
   chrome.storage.onChanged.addListener(function(changes) {
-    if (changes.notion_workspaces) {
-      workspaces = changes.notion_workspaces.newValue || [];
-      var newBotId = changes.notion_current_workspace_bot_id;
-      if (newBotId) currentWorkspaceBotId = newBotId.newValue;
-      refreshWorkspaceUI();
-      loadPageData();
-    }
-    if (changes.notion_current_workspace_bot_id) {
-      currentWorkspaceBotId = changes.notion_current_workspace_bot_id.newValue;
+    if (changes.notion_workspaces || changes.notion_current_workspace_bot_id) {
+      var ws = changes.notion_workspaces ? changes.notion_workspaces.newValue : workspaces;
+      var botId = changes.notion_current_workspace_bot_id
+        ? changes.notion_current_workspace_bot_id.newValue
+        : currentWorkspaceBotId;
+      if (ws) workspaces = ws;
+      if (botId !== undefined) currentWorkspaceBotId = botId;
       refreshWorkspaceUI();
       loadPageData();
     }
@@ -81,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsPanel.classList.remove('hidden');
     closeDropdown();
     renderSettingsWorkspaceList();
+    updateLogoutVisibility();
   });
 
   backFromSettings.addEventListener('click', () => {
@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 退出登录（移除当前空间）
+  // 解绑当前空间
   logoutBtn.addEventListener('click', () => {
     if (!currentWorkspaceBotId) return;
     removeWorkspace(currentWorkspaceBotId, () => {
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 添加新空间（启动新 OAuth 登录）
+  // 添加新空间
   addWorkspaceBtn.addEventListener('click', () => {
     startOAuthLogin();
   });
@@ -125,11 +125,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!botId) return;
     chrome.storage.local.set({ notion_current_workspace_bot_id: botId }, () => {
       currentWorkspaceBotId = botId;
+      // 切换空间时清除页面列表和最近记录
+      allPages = [];
+      allDatabases = [];
+      targetPage.value = '';
+      pageSearch.value = '';
+      pageSearch.placeholder = '选择或搜索目标页面...';
+      pageSearch.classList.remove('has-value');
+      pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
       loadPageData();
     });
   });
 
-  // 页面选择器（可搜索下拉框）— 只用点击事件，不用 focus 事件
+  // 页面选择器
   pagePickerTrigger.addEventListener('click', () => {
     if (dropdownOpen) {
       closeDropdown();
@@ -176,19 +184,14 @@ document.addEventListener('DOMContentLoaded', () => {
       currentWorkspaceBotId = result.notion_current_workspace_bot_id || null;
 
       if (workspaces.length > 0 && currentWorkspaceBotId) {
-        // 已登录：显示主界面
         loginScreen.classList.add('hidden');
         mainContent.classList.remove('hidden');
-
-        // 加载数据
         loadTheme();
         loadSettings();
         refreshWorkspaceUI();
         extractCurrentPage();
-        loadRecentPages();
         loadPageData();
       } else if (workspaces.length > 0 && !currentWorkspaceBotId) {
-        // 有空间但未设置当前空间，选第一个
         currentWorkspaceBotId = workspaces[0].bot_id;
         chrome.storage.local.set({ notion_current_workspace_bot_id: currentWorkspaceBotId }, () => {
           loginScreen.classList.add('hidden');
@@ -197,11 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
           loadSettings();
           refreshWorkspaceUI();
           extractCurrentPage();
-          loadRecentPages();
           loadPageData();
         });
       } else {
-        // 未登录：显示登录界面
         loginScreen.classList.remove('hidden');
         mainContent.classList.add('hidden');
         loadTheme();
@@ -210,7 +211,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function startOAuthLogin() {
-    // 交给 background service worker 去轮询（不受 popup 关闭影响）
     chrome.runtime.sendMessage({ action: 'start_oauth_login' }, function(response) {
       if (chrome.runtime.lastError) {
         showSettingsStatus('后台服务未启动，请重启扩展', 'error');
@@ -225,7 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
 
   function refreshWorkspaceUI() {
-    // 底部 workspace 下拉框
     workspaceSelect.innerHTML = '';
     for (var i = 0; i < workspaces.length; i++) {
       var ws = workspaces[i];
@@ -235,9 +234,18 @@ document.addEventListener('DOMContentLoaded', () => {
       if (ws.bot_id === currentWorkspaceBotId) opt.selected = true;
       workspaceSelect.appendChild(opt);
     }
-
-    // 设置面板 workspace 列表
     renderSettingsWorkspaceList();
+    updateLogoutVisibility();
+  }
+
+  function updateLogoutVisibility() {
+    if (workspaces.length === 0) {
+      settingsLogoutSection.classList.add('hidden');
+      settingsLogoutDivider.classList.add('hidden');
+    } else {
+      settingsLogoutSection.classList.remove('hidden');
+      settingsLogoutDivider.classList.remove('hidden');
+    }
   }
 
   function renderSettingsWorkspaceList() {
@@ -249,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
       html += '<div class="workspace-item' + (isActive ? ' active' : '') + '">' +
         '<span class="workspace-name">' + escapeHtml(ws.workspace_name || 'Notion') + '</span>' +
         '<div class="workspace-actions">' +
-        '<button class="remove-ws-btn" data-bot-id="' + ws.bot_id + '" title="移除">×</button>' +
+        '<button class="remove-ws-btn" data-bot-id="' + ws.bot_id + '" title="解绑">×</button>' +
         '</div></div>';
     }
     if (workspaces.length === 0) {
@@ -262,6 +270,7 @@ document.addEventListener('DOMContentLoaded', () => {
         var botId = this.getAttribute('data-bot-id');
         removeWorkspace(botId, () => {
           renderSettingsWorkspaceList();
+          updateLogoutVisibility();
           if (workspaces.length === 0) {
             settingsPanel.classList.add('hidden');
             checkLogin();
@@ -273,47 +282,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function removeWorkspace(botId, callback) {
     workspaces = workspaces.filter(function(ws) { return ws.bot_id !== botId; });
-
-    // 如果移除的是当前空间，切换到第一个
     if (botId === currentWorkspaceBotId) {
       currentWorkspaceBotId = workspaces.length > 0 ? workspaces[0].bot_id : null;
     }
-
     chrome.storage.local.set({
       notion_workspaces: workspaces,
       notion_current_workspace_bot_id: currentWorkspaceBotId,
     }, callback);
-  }
-
-  // 添加或更新 workspace（从 OAuth 回调收到新 token 时调用）
-  function addOrUpdateWorkspace(wsData) {
-    var existing = workspaces.filter(function(ws) { return ws.bot_id === wsData.bot_id; });
-    if (existing.length > 0) {
-      // 更新已有空间的 token
-      existing[0].access_token = wsData.access_token;
-      existing[0].refresh_token = wsData.refresh_token;
-      existing[0].expires_at = wsData.expires_at;
-    } else {
-      workspaces.push({
-        bot_id: wsData.bot_id,
-        access_token: wsData.access_token,
-        refresh_token: wsData.refresh_token,
-        expires_at: wsData.expires_at,
-        workspace_name: wsData.workspace_name,
-        workspace_icon: wsData.workspace_icon,
-      });
-    }
-
-    // 新空间设为当前
-    currentWorkspaceBotId = wsData.bot_id;
-
-    chrome.storage.local.set({
-      notion_workspaces: workspaces,
-      notion_current_workspace_bot_id: currentWorkspaceBotId,
-    }, () => {
-      refreshWorkspaceUI();
-      loadPageData();
-    });
   }
 
   // ============================================================
@@ -321,11 +296,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
 
   function extractCurrentPage() {
-    // 清除之前的保存状态
     openInNotion.classList.add('hidden');
     savedPageUrl = null;
-
-    // 延迟 500ms 让动态内容（懒加载图片等）稳定
     setTimeout(function() {
       chrome.runtime.sendMessage({ action: 'extract_content' }, function(response) {
         if (chrome.runtime.lastError) {
@@ -407,15 +379,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // 页面加载与选择
   // ============================================================
 
-  function loadRecentPages() {
-    chrome.storage.local.get(['recent_pages'], (result) => {
-      recentPages = result.recent_pages || [];
-    });
-  }
-
   function loadPageData() {
     pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
-
     chrome.runtime.sendMessage({ action: 'fetch_pages', query: '' }, (result) => {
       if (chrome.runtime.lastError) {
         pageList.innerHTML = '<div class="page-list-empty">连接失败</div>';
@@ -439,7 +404,6 @@ document.addEventListener('DOMContentLoaded', () => {
     dropdownOpen = true;
     pagePickerDropdown.classList.remove('hidden');
     document.querySelector('.popup').classList.add('dropdown-active');
-    // 保留已选中的页面名称，只清空搜索关键词
     var selectedTitle = targetPage.value ? pageSearch.value : '';
     pageSearch.value = '';
     pageSearch.placeholder = selectedTitle || '选择或搜索目标页面...';
@@ -451,7 +415,6 @@ document.addEventListener('DOMContentLoaded', () => {
     dropdownOpen = false;
     pagePickerDropdown.classList.add('hidden');
     document.querySelector('.popup').classList.remove('dropdown-active');
-    // 恢复已选中的页面名称，或恢复默认 placeholder
     if (targetPage.value && pageSearch.value === '') {
       var selectedTitle = pageSearch.placeholder;
       if (selectedTitle && selectedTitle !== '选择或搜索目标页面...') {
@@ -467,34 +430,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function filterPages(query) {
     if (!query) {
-      var wsRecent = recentPages.slice(0, 5);
-      var wsDb = allDatabases.filter(function(d) {
-        return !wsRecent.some(function(r) { return r.id === d.id; });
-      });
-      var wsPages = allPages.filter(function(p) {
-        return !wsRecent.some(function(r) { return r.id === p.id; }) &&
-               !wsDb.some(function(d) { return d.id === p.id; });
-      });
-      renderPageList(wsDb, wsPages, wsRecent, 10);
+      renderPageList(allDatabases, allPages, [], 10);
       return;
     }
 
     var q = query.toLowerCase();
     var filteredDb = allDatabases.filter(function(d) { return d.title.toLowerCase().indexOf(q) >= 0; });
     var filteredPages = allPages.filter(function(p) { return p.title.toLowerCase().indexOf(q) >= 0; });
-    var filteredRecent = recentPages.filter(function(p) { return p.title.toLowerCase().indexOf(q) >= 0; });
 
     if (query.length >= 2) {
       chrome.runtime.sendMessage({ action: 'fetch_pages', query: query }, (result) => {
         if (result && result.success) {
-          var mergedDb = mergeById(mergeById(filteredDb, result.databases || []), filteredRecent);
+          var mergedDb = mergeById(filteredDb, result.databases || []);
           var mergedPages = mergeById(filteredPages, result.pages || []);
-          // 搜索时不限制数量
           renderPageList(mergedDb, mergedPages, [], 0);
         }
       });
     } else {
-      renderPageList(filteredDb, filteredPages, filteredRecent, 10);
+      renderPageList(filteredDb, filteredPages, [], 10);
     }
   }
 
@@ -521,16 +474,6 @@ document.addEventListener('DOMContentLoaded', () => {
     recent = recent || [];
     var displayPages = pageLimit > 0 ? pages.slice(0, pageLimit) : pages;
 
-    if (recent.length > 0) {
-      html += '<div class="page-list-section"><div class="page-list-label">最近保存</div>';
-      for (var i = 0; i < recent.length; i++) {
-        html += '<div class="page-list-item" data-id="' + recent[i].id + '">' +
-          '<span class="page-icon"></span>' +
-          '<span class="page-title">' + escapeHtml(recent[i].title) + '</span></div>';
-      }
-      html += '</div>';
-    }
-
     if (databases.length > 0) {
       html += '<div class="page-list-section"><div class="page-list-label">数据库</div>';
       for (var i = 0; i < databases.length; i++) {
@@ -554,7 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
       html += '</div>';
     }
 
-    if (recent.length === 0 && databases.length === 0 && pages.length === 0) {
+    if (databases.length === 0 && pages.length === 0) {
       html = '<div class="page-list-empty">未找到匹配的页面或数据库</div>';
     }
 
@@ -603,21 +546,15 @@ document.addEventListener('DOMContentLoaded', () => {
         saveBtn.textContent = '保存到 Notion';
         saveBtn.disabled = false;
 
-        // 显示"在 Notion 中打开"链接
         if (result.pageUrl) {
           savedPageUrl = result.pageUrl;
           openInNotion.classList.remove('hidden');
-        }
-
-        if (targetPage.value) {
-          addRecentPage(targetPage.value, pageSearch.value);
         }
 
         setTimeout(() => {
           statusEl.className = 'status hidden';
         }, 3000);
       } else {
-        // token 过期时提示重新登录
         if (result && result.error && result.error.indexOf('认证失败') >= 0) {
           showStatus('认证已过期，请退出后重新登录', 'error');
         } else {
@@ -627,17 +564,6 @@ document.addEventListener('DOMContentLoaded', () => {
         saveBtn.disabled = false;
       }
     });
-  }
-
-  function addRecentPage(id, title) {
-    recentPages = recentPages.filter(function(p) { return p.id !== id; });
-    recentPages.unshift({
-      id: id,
-      title: title,
-      timestamp: Date.now(),
-    });
-    recentPages = recentPages.slice(0, 20);
-    chrome.storage.local.set({ recent_pages: recentPages });
   }
 
   function showStatus(message, type) {
