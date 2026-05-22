@@ -2,7 +2,27 @@
 
 Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文章的稳定完整抓取，替代 Notion Web Clipper（不稳定）和 Copy to Notion（付费）。
 
-当前版本：**v0.2.5**
+当前版本：**v0.3.0**
+
+## 变更日志
+
+### v0.3.0
+- 新增：最近保存位置记忆，每个 workspace 独立记录最近使用的 5 个页面
+- 新增：页面搜索支持拼音/标题模糊匹配，结果按字母排序
+- 移除：图片 Base64 模式（Notion API 不支持 data: URL，推迟到后续通过 File Upload API 实现）
+
+### v0.2.5
+- 新增：多空间管理（OAuth 授权，支持绑定多个 Notion 账号）
+- 新增：Raycast / Vercel 双主题
+- 新增：可编辑标题、保存后"在 Notion 中打开"快捷入口
+- 优化：公众号文章提取多层降级策略
+
+### v0.2.0
+- 从手动输入 Integration Token 改为 OAuth 2.0 登录
+- 支持 token 自动刷新
+
+### v0.1.0
+- 初始版本：网页内容提取 + 保存到 Notion
 
 ## 功能
 
@@ -10,6 +30,7 @@ Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文
 - 公众号文章深度解析（15 个 selector 多层降级）
 - 保存到指定 Notion 页面或数据库
 - 多 Notion 空间管理（OAuth 授权，支持绑定多个 Notion 账号）
+- 最近保存位置记忆，按 workspace 独立记录
 - 2 种 UI 主题：Raycast（暗色金属）、Vercel（黑白精准）
 - 可编辑标题、空间切换、搜索过滤页面/数据库
 - 保存后快捷跳转"在 Notion 中打开"

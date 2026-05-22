@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
   var extractedData = null;
   var allPages = [];
   var allDatabases = [];
+  var recentPages = [];
   var searchTimeout = null;
   var dropdownOpen = false;
   var savedPageUrl = null;
@@ -122,17 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   saveSettings.addEventListener('click', () => {
-    const imageMode = document.getElementById('image-mode').value;
-    chrome.runtime.sendMessage({
-      action: 'save_settings',
-      data: { image_mode: imageMode },
-    }, () => {
-      if (chrome.runtime.lastError) {
-        showSettingsStatus('设置保存失败: Service Worker 未运行', 'error');
-        return;
-      }
-      showSettingsStatus('设置已保存', 'success');
-    });
+    showSettingsStatus('设置已保存', 'success');
   });
 
   // 页面选择器
@@ -352,11 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function loadSettings() {
-    chrome.runtime.sendMessage({ action: 'get_settings' }, (settings) => {
-      if (settings && settings.image_mode) {
-        document.getElementById('image-mode').value = settings.image_mode;
-      }
-    });
+    // Image mode setting removed - Base64 feature deferred to future version
   }
 
   function loadTheme() {
@@ -411,14 +398,44 @@ document.addEventListener('DOMContentLoaded', () => {
       if (result && result.success) {
         allDatabases = result.databases || [];
         allPages = result.pages || [];
+        // 按标题排序
+        allDatabases.sort(function(a, b) { return a.title.localeCompare(b.title); });
+        allPages.sort(function(a, b) { return a.title.localeCompare(b.title); });
         targetPage.value = '';
         pageSearch.value = '';
         pageSearch.placeholder = '选择或搜索目标页面...';
         pageSearch.classList.remove('has-value');
-        renderPageList(allDatabases, allPages);
+        // 由 loadRecentPages 统一渲染，避免 race condition
+        loadRecentPages();
       } else {
         pageList.innerHTML = '<div class="page-list-empty">' + escapeHtml(result ? result.error : '加载失败') + '</div>';
       }
+    });
+  }
+
+  // 加载最近保存的位置（当前 workspace 作用域）
+  function loadRecentPages() {
+    var key = 'recent_pages_' + (currentWorkspaceBotId || 'default');
+    chrome.storage.local.get([key], function(result) {
+      recentPages = result[key] || [];
+      renderPageList(allDatabases, allPages, recentPages);
+    });
+  }
+
+  // 保存一个位置到最近列表
+  function saveRecentPage(id, title) {
+    if (!id || !currentWorkspaceBotId) return;
+    var key = 'recent_pages_' + currentWorkspaceBotId;
+    chrome.storage.local.get([key], function(result) {
+      var list = result[key] || [];
+      // 移除已存在的相同 id
+      list = list.filter(function(p) { return p.id !== id; });
+      // 加到最前面
+      list.unshift({ id: id, title: title });
+      // 最多保留 5 个
+      if (list.length > 5) list = list.slice(0, 5);
+      chrome.storage.local.set({ [key]: list });
+      recentPages = list;
     });
   }
 
@@ -452,9 +469,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function filterPages(query) {
     if (!query) {
-      renderPageList(allDatabases, allPages, [], 10);
+      renderPageList(allDatabases, allPages, recentPages);
       return;
     }
+
+    // 立即渲染搜索中状态，覆盖旧结果
+    pageList.innerHTML = '<div class="page-list-loading">搜索中...</div>';
 
     var q = query.toLowerCase();
     var filteredDb = allDatabases.filter(function(d) { return d.title.toLowerCase().indexOf(q) >= 0; });
@@ -463,39 +483,34 @@ document.addEventListener('DOMContentLoaded', () => {
     if (query.length >= 2) {
       chrome.runtime.sendMessage({ action: 'fetch_pages', query: query }, (result) => {
         if (result && result.success) {
-          var mergedDb = mergeById(filteredDb, result.databases || []);
-          var mergedPages = mergeById(filteredPages, result.pages || []);
-          renderPageList(mergedDb, mergedPages, [], 0);
+          // 直接使用 API 结果，不合并旧数据
+          renderPageList(result.databases || [], result.pages || [], []);
+        } else {
+          // API 失败时回退到本地过滤结果
+          renderPageList(filteredDb, filteredPages, []);
         }
       });
     } else {
-      renderPageList(filteredDb, filteredPages, [], 10);
+      renderPageList(filteredDb, filteredPages, []);
     }
   }
 
-  function mergeById(existing, newItems) {
-    var map = {};
-    for (var i = 0; i < existing.length; i++) {
-      map[existing[i].id] = existing[i];
-    }
-    for (var i = 0; i < newItems.length; i++) {
-      if (!map[newItems[i].id]) {
-        map[newItems[i].id] = newItems[i];
-      }
-    }
-    var result = [];
-    for (var key in map) {
-      result.push(map[key]);
-    }
-    return result;
-  }
-
-  function renderPageList(databases, pages, recent, pageLimit) {
-    pageLimit = pageLimit || 0;
+  function renderPageList(databases, pages, recent) {
     var html = '';
     recent = recent || [];
-    var displayPages = pageLimit > 0 ? pages.slice(0, pageLimit) : pages;
 
+    // 最近保存
+    if (recent.length > 0) {
+      html += '<div class="page-list-section"><div class="page-list-label">最近保存</div>';
+      for (var i = 0; i < recent.length; i++) {
+        html += '<div class="page-list-item page-list-item-recent" data-id="' + recent[i].id + '">' +
+          '<span class="page-icon"></span>' +
+          '<span class="page-title">' + escapeHtml(recent[i].title) + '</span></div>';
+      }
+      html += '</div>';
+    }
+
+    // 数据库
     if (databases.length > 0) {
       html += '<div class="page-list-section"><div class="page-list-label">数据库</div>';
       for (var i = 0; i < databases.length; i++) {
@@ -506,20 +521,22 @@ document.addEventListener('DOMContentLoaded', () => {
       html += '</div>';
     }
 
-    if (displayPages.length > 0) {
+    // 页面
+    if (pages.length > 0) {
       html += '<div class="page-list-section"><div class="page-list-label">页面</div>';
-      for (var i = 0; i < displayPages.length; i++) {
-        html += '<div class="page-list-item" data-id="' + displayPages[i].id + '">' +
+      var displayCount = pages.length > 10 ? 10 : pages.length;
+      for (var i = 0; i < displayCount; i++) {
+        html += '<div class="page-list-item" data-id="' + pages[i].id + '">' +
           '<span class="page-icon"></span>' +
-          '<span class="page-title">' + escapeHtml(displayPages[i].title) + '</span></div>';
+          '<span class="page-title">' + escapeHtml(pages[i].title) + '</span></div>';
       }
-      if (pageLimit > 0 && pages.length > pageLimit) {
+      if (pages.length > 10) {
         html += '<div class="page-list-more">还有更多页面，请输入关键词搜索</div>';
       }
       html += '</div>';
     }
 
-    if (databases.length === 0 && pages.length === 0) {
+    if (recent.length === 0 && databases.length === 0 && pages.length === 0) {
       html = '<div class="page-list-empty">未找到匹配的页面或数据库</div>';
     }
 
@@ -567,6 +584,12 @@ document.addEventListener('DOMContentLoaded', () => {
         showStatus('保存成功！' + result.blocksCount + ' 个 blocks', 'success');
         saveBtn.textContent = '保存到 Notion';
         saveBtn.disabled = false;
+
+        // 保存到最近位置
+        if (targetPage.value) {
+          var pageTitle = pageSearch.value || targetPage.value;
+          saveRecentPage(targetPage.value, pageTitle);
+        }
 
         if (result.pageUrl) {
           savedPageUrl = result.pageUrl;

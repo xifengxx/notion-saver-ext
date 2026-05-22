@@ -284,6 +284,10 @@ header h1 {
   background: var(--list-label-bg);
 }
 
+.page-list-item-recent .page-title {
+  color: var(--accent-color, #6d5cff);
+}
+
 .page-list-item {
   padding: 8px 10px;
   cursor: pointer;

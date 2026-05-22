@@ -112,9 +112,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   }
 
   if (message.action === 'get_settings') {
-    chrome.storage.local.get(['image_mode'], function(result) {
-      sendResponse(result);
-    });
+    sendResponse({});
     return true;
   }
 
