@@ -106,3 +106,171 @@ export function renderSettingsWorkspaceList(workspaces, currentBotId, containerE
     });
   }
 }
+
+// ============================================================
+// 预设 Pills 渲染（v0.4.0）
+// ============================================================
+export function renderPresetsRow(presets, activePresetId, containerEl, onSelect, onCreate) {
+  var html = '';
+  for (var i = 0; i < presets.length; i++) {
+    var p = presets[i];
+    var isActive = p.id === activePresetId;
+    html += '<span class="preset-pill' + (isActive ? ' active' : '') + '" data-preset-id="' + p.id + '">' +
+      escapeHtml(p.name) + '</span>';
+  }
+  html += '<span class="preset-pill preset-pill-add" id="preset-add-btn">+</span>';
+  containerEl.innerHTML = html;
+
+  containerEl.querySelectorAll('.preset-pill[data-preset-id]').forEach(function(pill) {
+    pill.addEventListener('click', function() {
+      var presetId = this.getAttribute('data-preset-id');
+      for (var i = 0; i < presets.length; i++) {
+        if (presets[i].id === presetId) {
+          if (onSelect) onSelect(presets[i]);
+          return;
+        }
+      }
+    });
+  });
+
+  var addBtn = containerEl.querySelector('#preset-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', function() {
+      if (onCreate) onCreate();
+    });
+  }
+}
+
+// ============================================================
+// 历史列表渲染（v0.4.0）
+// ============================================================
+export function renderHistoryList(entries, containerEl, onOpen, onCopy, onRetry) {
+  if (!entries || entries.length === 0) {
+    renderHistoryEmpty(containerEl);
+    return;
+  }
+
+  var groups = groupByDate(entries);
+  var html = '';
+
+  for (var g = 0; g < groups.length; g++) {
+    var group = groups[g];
+    html += '<div class="history-date-group">' +
+      '<div class="history-date-label">' + escapeHtml(group.label) + '</div>';
+
+    for (var i = 0; i < group.items.length; i++) {
+      var entry = group.items[i];
+      var isSuccess = entry.status === 'success';
+      var icon = isSuccess ? '✓' : '✕';
+      var iconClass = isSuccess ? 'success' : 'failed';
+
+      html += '<div class="history-item" data-entry-id="' + entry.id + '" data-notion-url="' + escapeHtml(entry.notionUrl || '') + '">' +
+        '<span class="history-status-icon ' + iconClass + '">' + icon + '</span>' +
+        '<div class="history-item-body">' +
+        '<div class="history-item-title">' + escapeHtml(entry.sourceTitle || entry.savedPageTitle || '无标题') + '</div>' +
+        '<div class="history-item-meta">' +
+        '<span>' + escapeHtml(entry.targetPageName || 'Notion') + '</span>' +
+        '<span>' + formatRelativeTime(entry.timestamp) + '</span>' +
+        (isSuccess ? '<span>' + (entry.blocksCount || 0) + ' blocks</span>' : '') +
+        '</div></div>' +
+        '<div class="history-item-actions">';
+
+      if (isSuccess) {
+        html += '<button class="history-action-btn copy-btn" title="复制链接">📋</button>' +
+          '<button class="history-action-btn open-btn" title="在 Notion 中打开">↗</button>';
+      } else {
+        html += '<button class="history-action-btn retry-btn" title="重试">↻</button>';
+      }
+
+      html += '</div></div>';
+    }
+    html += '</div>';
+  }
+
+  containerEl.innerHTML = html;
+
+  // 绑定事件
+  containerEl.querySelectorAll('.open-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var item = this.closest('.history-item');
+      var url = item.getAttribute('data-notion-url');
+      if (url && onOpen) onOpen(url);
+    });
+  });
+
+  containerEl.querySelectorAll('.copy-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var item = this.closest('.history-item');
+      var url = item.getAttribute('data-notion-url');
+      if (url && onCopy) onCopy(url, this);
+    });
+  });
+
+  containerEl.querySelectorAll('.retry-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var item = this.closest('.history-item');
+      var entryId = item.getAttribute('data-entry-id');
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].id === entryId) {
+          if (onRetry) onRetry(entries[i], this);
+          return;
+        }
+      }
+    });
+  });
+
+  // 整行点击打开
+  containerEl.querySelectorAll('.history-item').forEach(function(item) {
+    item.addEventListener('click', function() {
+      var url = this.getAttribute('data-notion-url');
+      if (url && onOpen) onOpen(url);
+    });
+  });
+}
+
+export function renderHistoryEmpty(containerEl) {
+  containerEl.innerHTML = '<div class="history-empty">暂无保存记录</div>';
+}
+
+// ============================================================
+// 历史列表工具函数
+// ============================================================
+function formatRelativeTime(timestamp) {
+  var diff = Date.now() - timestamp;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  if (diff < 172800000) return '昨天';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+function groupByDate(entries) {
+  var now = new Date();
+  var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  var yesterdayStart = todayStart - 86400000;
+
+  var groups = [];
+  var todayItems = [];
+  var yesterdayItems = [];
+  var earlierItems = [];
+
+  for (var i = 0; i < entries.length; i++) {
+    var ts = entries[i].timestamp || 0;
+    if (ts >= todayStart) {
+      todayItems.push(entries[i]);
+    } else if (ts >= yesterdayStart) {
+      yesterdayItems.push(entries[i]);
+    } else {
+      earlierItems.push(entries[i]);
+    }
+  }
+
+  if (todayItems.length > 0) groups.push({ label: '今天', items: todayItems });
+  if (yesterdayItems.length > 0) groups.push({ label: '昨天', items: yesterdayItems });
+  if (earlierItems.length > 0) groups.push({ label: '更早', items: earlierItems });
+
+  return groups;
+}

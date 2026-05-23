@@ -14,6 +14,7 @@ var STORE = {
   SAVE_STATE: 'notion_save_state',
   RECENT_PAGES_PREFIX: 'recent_pages_',
   NOTIF_URL_PREFIX: 'notif_url_',
+  SAVE_HISTORY_PREFIX: 'save_history_',
 };
 
 // 安装/更新时创建右键菜单
@@ -608,6 +609,38 @@ function recentPagesKey(botId) {
   return STORE.RECENT_PAGES_PREFIX + (botId || 'default');
 }
 
+function saveHistoryKey(botId) {
+  return STORE.SAVE_HISTORY_PREFIX + (botId || 'default');
+}
+
+function recordHistory(data, saveResult, targetPageName, botId) {
+  if (!botId) return;
+  var key = saveHistoryKey(botId);
+  // 获取目标页面名（从 popup 传过来的，这里先跳过获取，直接存空）
+  chrome.storage.local.get([key], function(result) {
+    var history = result[key] || [];
+    var entry = {
+      id: 'h_' + Date.now(),
+      sourceTitle: data.title || '',
+      sourceUrl: data.url || '',
+      savedPageTitle: data.title || '',
+      notionUrl: saveResult.success ? (saveResult.pageUrl || '') : '',
+      targetPageName: targetPageName || '',
+      timestamp: Date.now(),
+      status: saveResult.success ? 'success' : 'failed',
+      error: saveResult.error || '',
+      blocksCount: saveResult.blocksCount || 0,
+      extractedData: null,
+    };
+    history.unshift(entry);
+    if (history.length > 50) history = history.slice(0, 50);
+
+    var kv = {};
+    kv[key] = history;
+    chrome.storage.local.set(kv);
+  });
+}
+
 function extractFromTab(tab) {
   return new Promise(function(resolve) {
     chrome.tabs.sendMessage(tab.id, { action: 'extract' }, function(response) {
@@ -749,11 +782,13 @@ function saveCurrentPage(tab) {
       clearBadgeAfter(5000);
       showPageToast(tab.id, 'success', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
       showSaveNotification('保存成功', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
+      recordHistory(params.extractedData, result, params.parentId ? '' : '', params.botId);
     } else {
       showBadge('!', '#ef4444');
       clearBadgeAfter(5000);
       showPageToast(tab.id, 'error', result.error || '保存失败');
       showSaveNotification('保存失败', result.error || '未知错误');
+      recordHistory(params.extractedData, result, params.parentId ? '' : '', params.botId);
     }
   }).catch(function(err) {
     showBadge('!', '#ef4444');

@@ -12,6 +12,7 @@
       <h1>NotionSnap</h1>
       <div class="header-actions">
         <button id="theme-btn" class="theme-indicator" title="切换主题">Raycast</button>
+        <button id="history-btn" class="icon-btn" title="保存历史">🕐</button>
         <button id="settings-btn" class="icon-btn" title="设置">⚙</button>
       </div>
     </header>
@@ -51,6 +52,18 @@
           </div>
         </div>
         <input type="hidden" id="target-page" value="">
+      </div>
+
+      <!-- 预设快捷选择 -->
+      <div id="presets-section" class="presets-section hidden">
+        <div id="presets-row" class="presets-row"></div>
+        <div id="preset-create-form" class="preset-create-form hidden">
+          <input type="text" id="preset-name-input" placeholder="预设名称，如：公众号文章" maxlength="20">
+          <div class="preset-create-actions">
+            <button id="preset-create-cancel">取消</button>
+            <button id="preset-create-save" class="preset-create-save">保存</button>
+          </div>
+        </div>
       </div>
 
       <!-- 3. 保存按钮 -->
@@ -124,7 +137,25 @@
           <p class="status-text"></p>
         </div>
         <div class="divider"></div>
-        <div class="settings-footer">v0.3.8</div>
+        <div class="divider"></div>
+        <div class="presets-manage">
+          <h3>保存预设</h3>
+          <p class="hint" style="margin:0 0 8px 0">预设可保存目标页面，点击 pill 一键切换</p>
+          <div id="settings-presets-list"></div>
+        </div>
+        <div class="settings-footer">v0.4.0</div>
+      </div>
+    </div>
+
+    <!-- 保存历史面板 -->
+    <div id="history-panel" class="history-panel hidden">
+      <div class="settings-header">
+        <button id="back-from-history" class="settings-icon-btn" title="返回">‹</button>
+        <h2>保存历史</h2>
+        <button id="close-history" class="settings-icon-btn" title="关闭">×</button>
+      </div>
+      <div class="history-body">
+        <div id="history-list"></div>
       </div>
     </div>
   </div>

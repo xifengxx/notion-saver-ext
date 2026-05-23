@@ -1,6 +1,6 @@
 // Popup UI 逻辑 — OAuth 多空间版本
-import { STORE, recentPagesKey, escapeHtml } from './lib.js';
-import { renderPageList, renderSettingsWorkspaceList } from './render.js';
+import { STORE, recentPagesKey, escapeHtml, presetsKey, saveHistoryKey } from './lib.js';
+import { renderPageList, renderSettingsWorkspaceList, renderPresetsRow, renderHistoryList, renderHistoryEmpty } from './render.js';
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -28,6 +28,18 @@ document.addEventListener('DOMContentLoaded', () => {
   var pagePickerTrigger = document.getElementById('page-picker-trigger');
   var pagePickerDropdown = document.getElementById('page-picker-dropdown');
   var openInNotion = document.getElementById('open-in-notion');
+  var historyBtn = document.getElementById('history-btn');
+  var historyPanel = document.getElementById('history-panel');
+  var backFromHistory = document.getElementById('back-from-history');
+  var closeHistory = document.getElementById('close-history');
+  var historyList = document.getElementById('history-list');
+  var presetsSection = document.getElementById('presets-section');
+  var presetsRow = document.getElementById('presets-row');
+  var presetCreateForm = document.getElementById('preset-create-form');
+  var presetNameInput = document.getElementById('preset-name-input');
+  var presetCreateSave = document.getElementById('preset-create-save');
+  var presetCreateCancel = document.getElementById('preset-create-cancel');
+  var settingsPresetsList = document.getElementById('settings-presets-list');
 
   var themes = ['raycast', 'vercel'];
   var themeLabels = ['Raycast', 'Vercel'];
@@ -42,6 +54,9 @@ document.addEventListener('DOMContentLoaded', () => {
   var workspaces = [];
   var currentWorkspaceBotId = null;
   var pendingUnbindBotId = null;
+  var presets = [];
+  var activePresetId = null;
+  var saveHistory = [];
 
   // 监听 storage 变化
   chrome.storage.onChanged.addListener(function(changes) {
@@ -54,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (botId !== undefined) currentWorkspaceBotId = botId;
       refreshWorkspaceUI();
       loadPageData();
+      loadPresets();
+      loadSaveHistory();
     }
     if (changes[STORE.SAVE_STATE]) {
       updateSaveProgress(changes[STORE.SAVE_STATE].newValue);
@@ -258,6 +275,8 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshWorkspaceUI();
         extractCurrentPage();
         loadPageData();
+        loadPresets();
+        loadSaveHistory();
         if (result[STORE.TOKEN_FAILED]) {
           showStatus('登录认证已过期，请更换空间或重新登录', 'error');
           chrome.storage.local.set({ [STORE.TOKEN_FAILED]: false });
@@ -272,6 +291,8 @@ document.addEventListener('DOMContentLoaded', () => {
           refreshWorkspaceUI();
           extractCurrentPage();
           loadPageData();
+          loadPresets();
+          loadSaveHistory();
           if (result[STORE.TOKEN_FAILED]) {
             showStatus('登录认证已过期，请更换空间或重新登录', 'error');
             chrome.storage.local.set({ [STORE.TOKEN_FAILED]: false });
@@ -537,6 +558,20 @@ document.addEventListener('DOMContentLoaded', () => {
     targetPage.value = id;
     pageSearch.value = title;
     pageSearch.classList.add('has-value');
+    // 手动选不同页面时取消预设选中
+    if (activePresetId) {
+      var preset = null;
+      for (var i = 0; i < presets.length; i++) {
+        if (presets[i].id === activePresetId) {
+          preset = presets[i];
+          break;
+        }
+      }
+      if (!preset || preset.targetPageId !== id) {
+        activePresetId = null;
+        renderPresetsUI();
+      }
+    }
     closeDropdown();
   }
 
@@ -581,13 +616,20 @@ document.addEventListener('DOMContentLoaded', () => {
           savedPageUrl = result.pageUrl;
           openInNotion.classList.remove('hidden');
           // 10秒后自动隐藏
-          setTimeout(() => {
+          setTimeout(function() {
             openInNotion.classList.add('hidden');
             savedPageUrl = null;
           }, 10000);
         }
 
-        setTimeout(() => {
+        // 记录保存历史
+        recordSaveHistory(
+          data.title, data.url, data.title,
+          result.pageUrl || '', targetPage.value ? (pageSearch.value || targetPage.value) : '',
+          'success', '', result.blocksCount, null
+        );
+
+        setTimeout(function() {
           statusEl.className = 'status hidden';
         }, 3000);
       } else {
@@ -596,6 +638,12 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           showStatus('保存失败: ' + (result ? result.error : '未知错误'), 'error');
         }
+        // 记录失败历史（保留 extractedData 供重试）
+        recordSaveHistory(
+          data.title, data.url, data.title,
+          '', targetPage.value ? (pageSearch.value || targetPage.value) : '',
+          'failed', result ? result.error : '未知错误', 0, data
+        );
         saveBtn.textContent = '保存到 Notion';
         saveBtn.disabled = false;
       }
@@ -640,5 +688,301 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 2000);
     }
   }
+
+  // ============================================================
+  // 预设功能（v0.4.0）
+  // ============================================================
+
+  function loadPresets() {
+    var key = presetsKey(currentWorkspaceBotId);
+    chrome.storage.local.get([key], function(result) {
+      presets = result[key] || [];
+      renderPresetsUI();
+      renderSettingsPresets();
+    });
+  }
+
+  function renderPresetsUI() {
+    if (presets.length > 0) {
+      presetsSection.classList.remove('hidden');
+      renderPresetsRow(presets, activePresetId, presetsRow, onPresetSelect, showPresetCreateForm);
+    } else {
+      presetsSection.classList.add('hidden');
+      presetsRow.innerHTML = '';
+      activePresetId = null;
+    }
+  }
+
+  function onPresetSelect(preset) {
+    activePresetId = preset.id;
+    targetPage.value = preset.targetPageId;
+    pageSearch.value = preset.targetPageTitle;
+    pageSearch.classList.add('has-value');
+    closeDropdown();
+    renderPresetsUI();
+  }
+
+  function showPresetCreateForm() {
+    if (!targetPage.value) {
+      showStatus('请先在"保存到"下拉框中选择目标页面', 'loading');
+      setTimeout(function() { statusEl.className = 'status hidden'; }, 2000);
+      return;
+    }
+    presetCreateForm.classList.remove('hidden');
+    presetNameInput.value = '';
+    presetNameInput.focus();
+  }
+
+  function hidePresetCreateForm() {
+    presetCreateForm.classList.add('hidden');
+  }
+
+  function savePresetFromForm() {
+    var name = presetNameInput.value.trim();
+    if (!name) return;
+    if (!targetPage.value) return;
+    savePresetToStorage(name, targetPage.value, pageSearch.value || targetPage.value);
+    hidePresetCreateForm();
+  }
+
+  function savePresetToStorage(name, pageId, pageTitle) {
+    var preset = {
+      id: 'p_' + Date.now(),
+      name: name,
+      targetPageId: pageId,
+      targetPageTitle: pageTitle,
+      createdAt: Date.now(),
+    };
+    presets.unshift(preset);
+    if (presets.length > 20) presets = presets.slice(0, 20);
+    activePresetId = preset.id;
+
+    var kv = {};
+    kv[presetsKey(currentWorkspaceBotId)] = presets;
+    chrome.storage.local.set(kv, function() {
+      renderPresetsUI();
+      renderSettingsPresets();
+    });
+  }
+
+  function onDeletePreset(presetId) {
+    presets = presets.filter(function(p) { return p.id !== presetId; });
+    if (activePresetId === presetId) {
+      activePresetId = null;
+    }
+    var kv = {};
+    kv[presetsKey(currentWorkspaceBotId)] = presets;
+    chrome.storage.local.set(kv, function() {
+      renderPresetsUI();
+      renderSettingsPresets();
+    });
+  }
+
+  function renderSettingsPresets() {
+    if (!settingsPresetsList) return;
+    if (presets.length === 0) {
+      settingsPresetsList.innerHTML = '<p class="hint" style="margin:8px 0">暂无预设，在 popup 中选择目标页面后点击 + 创建</p>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < presets.length; i++) {
+      var p = presets[i];
+      html += '<div class="preset-manage-item">' +
+        '<div class="preset-manage-info">' +
+        '<div class="preset-manage-name">' + escapeHtml(p.name) + '</div>' +
+        '<div class="preset-manage-target">→ ' + escapeHtml(p.targetPageTitle) + '</div>' +
+        '</div>' +
+        '<button class="preset-manage-delete" data-preset-id="' + p.id + '" title="删除预设">×</button>' +
+        '</div>';
+    }
+    settingsPresetsList.innerHTML = html;
+
+    settingsPresetsList.querySelectorAll('.preset-manage-delete').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        onDeletePreset(this.getAttribute('data-preset-id'));
+      });
+    });
+  }
+
+  presetCreateSave.addEventListener('click', savePresetFromForm);
+  presetCreateCancel.addEventListener('click', hidePresetCreateForm);
+  presetNameInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') savePresetFromForm();
+    if (e.key === 'Escape') hidePresetCreateForm();
+  });
+
+  // ============================================================
+  // 保存历史功能（v0.4.0）
+  // ============================================================
+
+  function recordSaveHistory(sourceTitle, sourceUrl, savedPageTitle, notionUrl, targetPageName, status, error, blocksCount, extractedData) {
+    var key = saveHistoryKey(currentWorkspaceBotId);
+    chrome.storage.local.get([key], function(result) {
+      var history = result[key] || [];
+      var entry = {
+        id: 'h_' + Date.now(),
+        sourceTitle: sourceTitle || '',
+        sourceUrl: sourceUrl || '',
+        savedPageTitle: savedPageTitle || '',
+        notionUrl: notionUrl || '',
+        targetPageName: targetPageName || '',
+        timestamp: Date.now(),
+        status: status,
+        error: error || '',
+        blocksCount: blocksCount || 0,
+        extractedData: extractedData || null,
+      };
+      history.unshift(entry);
+
+      // 裁剪全量数据：只保留最近 10 条的 extractedData
+      var withData = 0;
+      for (var i = 0; i < history.length; i++) {
+        if (history[i].extractedData) {
+          withData++;
+          if (withData > 10) {
+            history[i].extractedData = null;
+          }
+        }
+      }
+
+      // 最多 50 条
+      if (history.length > 50) history = history.slice(0, 50);
+
+      saveHistory = history;
+      var kv = {};
+      kv[key] = history;
+      chrome.storage.local.set(kv);
+    });
+  }
+
+  function loadSaveHistory() {
+    var key = saveHistoryKey(currentWorkspaceBotId);
+    chrome.storage.local.get([key], function(result) {
+      saveHistory = result[key] || [];
+      if (historyPanel && !historyPanel.classList.contains('hidden')) {
+        renderHistory();
+      }
+    });
+  }
+
+  function renderHistory() {
+    renderHistoryList(saveHistory, historyList, onHistoryOpen, onHistoryCopy, onHistoryRetry);
+  }
+
+  function openHistoryPanel() {
+    historyPanel.classList.remove('hidden');
+    mainContent.classList.add('hidden');
+    document.querySelector('header').classList.add('hidden');
+    settingsPanel.classList.add('hidden');
+    hidePresetCreateForm();
+    loadSaveHistory();
+  }
+
+  function closeHistoryPanel() {
+    historyPanel.classList.add('hidden');
+    mainContent.classList.remove('hidden');
+    document.querySelector('header').classList.remove('hidden');
+  }
+
+  function onHistoryOpen(url) {
+    if (url) chrome.tabs.create({ url: url });
+  }
+
+  function onHistoryCopy(url, btnEl) {
+    if (!url) return;
+    try {
+      navigator.clipboard.writeText(url).then(function() {
+        if (btnEl) {
+          var origText = btnEl.textContent;
+          btnEl.textContent = '✓';
+          setTimeout(function() { btnEl.textContent = origText; }, 1000);
+        }
+      });
+    } catch (e) {
+      // fallback
+      var ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  }
+
+  function onHistoryRetry(entry, btnEl) {
+    if (!entry) return;
+    if (btnEl) {
+      btnEl.textContent = '...';
+      btnEl.disabled = true;
+    }
+
+    var doSave = function(data) {
+      if (!data) {
+        if (btnEl) {
+          btnEl.textContent = '↻';
+          btnEl.disabled = false;
+        }
+        return;
+      }
+      saveBtn.disabled = true;
+      saveBtn.textContent = '重试中...';
+      showStatus('正在重新保存...', 'loading');
+
+      chrome.runtime.sendMessage({
+        action: 'save_to_notion',
+        data: data,
+        targetPage: targetPage.value,
+        workspaceBotId: currentWorkspaceBotId,
+      }, function(result) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '保存到 Notion';
+        if (result && result.success) {
+          showStatus('重试成功！' + result.blocksCount + ' 个 blocks', 'success');
+          saveRecentPage(targetPage.value, targetPage.value);
+          if (result.pageUrl) {
+            savedPageUrl = result.pageUrl;
+            openInNotion.classList.remove('hidden');
+            setTimeout(function() {
+              openInNotion.classList.add('hidden');
+              savedPageUrl = null;
+            }, 10000);
+          }
+          recordSaveHistory(entry.sourceTitle, entry.sourceUrl, entry.savedPageTitle, result.pageUrl, entry.targetPageName, 'success', '', result.blocksCount, null);
+        } else {
+          showStatus('重试失败: ' + (result ? result.error : '未知错误'), 'error');
+          recordSaveHistory(entry.sourceTitle, entry.sourceUrl, entry.savedPageTitle, '', entry.targetPageName, 'failed', result ? result.error : '未知错误', 0, entry.extractedData);
+        }
+        loadSaveHistory();
+        setTimeout(function() { statusEl.className = 'status hidden'; }, 3000);
+      });
+    };
+
+    if (entry.extractedData) {
+      doSave(entry.extractedData);
+    } else {
+      // 无全量数据，从当前 tab 重新提取
+      setTimeout(function() {
+        chrome.runtime.sendMessage({ action: 'extract_content' }, function(response) {
+          if (chrome.runtime.lastError || !response || response.error) {
+            if (btnEl) {
+              btnEl.textContent = '↻';
+              btnEl.disabled = false;
+            }
+            showStatus('请打开要保存的页面后重试', 'error');
+            setTimeout(function() { statusEl.className = 'status hidden'; }, 2000);
+            return;
+          }
+          doSave(response);
+        });
+      }, 300);
+    }
+  }
+
+  // 历史面板按钮
+  historyBtn.addEventListener('click', openHistoryPanel);
+  backFromHistory.addEventListener('click', closeHistoryPanel);
+  closeHistory.addEventListener('click', closeHistoryPanel);
 
 });

@@ -13,6 +13,14 @@ export function recentPagesKey(botId) {
   return 'recent_pages_' + (botId || 'default');
 }
 
+export function presetsKey(botId) {
+  return 'presets_' + (botId || 'default');
+}
+
+export function saveHistoryKey(botId) {
+  return 'save_history_' + (botId || 'default');
+}
+
 export function escapeHtml(text) {
   var div = document.createElement('div');
   div.textContent = text;
