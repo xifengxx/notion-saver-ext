@@ -2,9 +2,19 @@
 
 Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文章的稳定完整抓取，替代 Notion Web Clipper（不稳定）和 Copy to Notion（付费）。
 
-当前版本：**v0.3.0**
+当前版本：**v0.3.5**
 
 ## 变更日志
+
+### v0.3.5
+- 重构：CSS 主题系统从选择器覆盖迁移到 CSS 变量驱动（维护性大幅提升）
+- 新增：Token 刷新失败时 Chrome 系统通知 + popup 内提示
+- 新增：Service Worker 保存中断恢复机制（storage 跟踪保存状态）
+- 优化：popup.js 模块化拆分（lib.js + render.js + popup.js）
+- 优化：storage key 常量化，消除重复 key 生成逻辑
+- 优化：死代码清理、const → var 统一、addEventListener 命名
+- 修复：Backend 健康检查 + 请求日志 + session 过期清理 + token-store 容错
+- 修复：tests/verify.js 中不存在的 test_connection action 引用
 
 ### v0.3.0
 - 新增：最近保存位置记忆，每个 workspace 独立记录最近使用的 5 个页面
