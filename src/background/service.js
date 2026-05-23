@@ -125,7 +125,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   if (message.action === 'save_to_notion') {
     var botId = message.workspaceBotId || null;
     saveToNotion(message.data, message.targetPage, botId).then(sendResponse).catch(function(err) {
-      console.error('[Notion Saver] Unhandled error in saveToNotion:', err);
+      console.error('[NotionSnap] Unhandled error in saveToNotion:', err);
       sendResponse({ success: false, error: err.message || '保存失败' });
     });
     return true;
@@ -155,7 +155,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
         return;
       }
       fetchNotionPages(token, message.query).then(sendResponse).catch(function(err) {
-        console.error('[Notion Saver] fetch_pages error:', err);
+        console.error('[NotionSnap] fetch_pages error:', err);
         sendResponse({ success: false, error: err.message || '获取失败', pages: [], databases: [] });
       });
     });
@@ -201,13 +201,13 @@ function getValidToken() {
             });
             resolve(ws.access_token);
           }).catch(function(err) {
-            console.error('[Notion Saver] Token refresh failed:', err && err.message ? err.message : err);
+            console.error('[NotionSnap] Token refresh failed:', err && err.message ? err.message : err);
             chrome.storage.local.set({ [STORE.TOKEN_FAILED]: true });
             try {
               chrome.notifications.create('token-refresh-failed', {
                 type: 'basic',
                 iconUrl: chrome.runtime.getURL('public/icons/icon-48.png'),
-                title: 'Notion Saver — 认证已过期',
+                title: 'NotionSnap — 认证已过期',
                 message: '请点击扩展图标重新登录',
               });
             } catch (e) { /* notifications may not be available */ }
@@ -289,13 +289,13 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
       });
     });
   }).catch(function(err) {
-    console.error('[Notion Saver] Save failed:', err);
+    console.error('[NotionSnap] Save failed:', err);
     chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'failed', error: err.message || '保存失败', at: Date.now() } });
     try {
       chrome.notifications.create('save-failed', {
         type: 'basic',
         iconUrl: chrome.runtime.getURL('public/icons/icon-48.png'),
-        title: 'Notion Saver — 保存失败',
+        title: 'NotionSnap — 保存失败',
         message: err.message || '保存过程中断，请重试',
       });
     } catch (e) { /* notifications may not be available */ }
@@ -324,7 +324,7 @@ function appendBlocksWithRetry(token, pageId, blocks, maxRetries) {
   return appendBlocks(token, pageId, blocks).catch(function(err) {
     if (maxRetries > 0 && err.message && err.message.indexOf('fetch') >= 0) {
       var retryNum = 3 - maxRetries + 1;
-      console.log('[Notion Saver] Append blocks failed, retrying... (' + retryNum + '/3)');
+      console.log('[NotionSnap] Append blocks failed, retrying... (' + retryNum + '/3)');
       chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', stage: 'appending_blocks', retryCurrent: retryNum } });
       showBadge('R' + retryNum, '#e67e22');
       return delay(2000).then(function() {
@@ -507,7 +507,7 @@ function fetchNotionPages(token, query) {
 
     return { success: true, pages: pages, databases: databases };
   }).catch(function(err) {
-    console.error('[Notion Saver] Fetch pages failed:', err);
+    console.error('[NotionSnap] Fetch pages failed:', err);
     return { success: false, error: err.message, pages: [], databases: [] };
   });
 }
@@ -647,12 +647,12 @@ function showSaveNotification(title, message, pageUrl) {
   var options = {
     type: 'basic',
     iconUrl: chrome.runtime.getURL('public/icons/icon-48.png'),
-    title: 'Notion Saver — ' + title,
+    title: 'NotionSnap — ' + title,
     message: message,
   };
   chrome.notifications.create(notifId, options, function(createdId) {
     if (chrome.runtime.lastError) {
-      console.error('[Notion Saver] Notification failed:', chrome.runtime.lastError.message);
+      console.error('[NotionSnap] Notification failed:', chrome.runtime.lastError.message);
     }
   });
   if (pageUrl) {
@@ -702,7 +702,7 @@ function showPageToast(tabId, type, message, pageUrl) {
     },
     args: [bgColor, icon, message, pageUrl],
   }).catch(function(err) {
-    console.error('[Notion Saver] Page toast failed:', err && err.message ? err.message : err);
+    console.error('[NotionSnap] Page toast failed:', err && err.message ? err.message : err);
   });
 }
 
@@ -758,7 +758,7 @@ function saveCurrentPage(tab) {
   }).catch(function(err) {
     showBadge('!', '#ef4444');
     clearBadgeAfter(5000);
-    console.error('[Notion Saver] saveCurrentPage error:', err && err.message ? err.message : err);
+    console.error('[NotionSnap] saveCurrentPage error:', err && err.message ? err.message : err);
   });
 }
 

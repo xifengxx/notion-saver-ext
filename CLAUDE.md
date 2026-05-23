@@ -1,4 +1,4 @@
-# Notion Saver — Chrome 扩展
+# NotionSnap — Chrome 扩展
 
 ## 项目概述
 

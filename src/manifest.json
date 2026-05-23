@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Notion Saver",
+  "name": "NotionSnap",
   "version": "0.3.8",
   "description": "一键保存网页内容到 Notion",
   "permissions": [

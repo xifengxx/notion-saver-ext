@@ -1,4 +1,4 @@
-// Shared constants and utility functions for Notion Saver popup
+// Shared constants and utility functions for NotionSnap popup
 
 export var STORE = {
   WORKSPACES: 'notion_workspaces',

@@ -546,7 +546,7 @@ function domToBlocksFromHTML(html, blocks) {
 
   // 检查解析结果
   if (!doc.body || !doc.body.childNodes.length) {
-    console.log('[Notion Saver] Parser returned empty body for HTML length:', html.length);
+    console.log('[NotionSnap] Parser returned empty body for HTML length:', html.length);
     // 回退：手动处理简单 p 标签
     var pMatch = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
     if (pMatch) {
@@ -570,7 +570,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   if (message.action === 'extract') {
     try {
       var data = extractContent();
-      console.log('[Notion Saver] Extract result:', data.error || 'OK', 'type:', data.type, 'title:', data.title, 'contentHTML length:', data.contentHTML ? data.contentHTML.length : 0);
+      console.log('[NotionSnap] Extract result:', data.error || 'OK', 'type:', data.type, 'title:', data.title, 'contentHTML length:', data.contentHTML ? data.contentHTML.length : 0);
       if (data.contentHTML && !data.error) {
         var blocks = [];
         domToBlocksFromHTML(data.contentHTML, blocks);
@@ -579,7 +579,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
         if (blocks.length === 0 && data.contentHTML) {
           var plainText = extractPlainText(data.contentHTML);
           if (plainText && plainText.trim().length > 0) {
-            console.log('[Notion Saver] DOM traversal returned 0 blocks, falling back to plain text');
+            console.log('[NotionSnap] DOM traversal returned 0 blocks, falling back to plain text');
             // 按 1500 字符分段，每段一个段落 block，避免超长
             var chunkSize = 1500;
             for (var pi = 0; pi < plainText.length; pi += chunkSize) {
@@ -589,14 +589,14 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
         }
 
         data.blocks = blocks;
-        console.log('[Notion Saver] Extracted', blocks.length, 'blocks');
+        console.log('[NotionSnap] Extracted', blocks.length, 'blocks');
         if (blocks.length === 0) {
-          console.log('[Notion Saver] HTML sample (first 500 chars):', data.contentHTML.substring(0, 500));
+          console.log('[NotionSnap] HTML sample (first 500 chars):', data.contentHTML.substring(0, 500));
         }
       }
       sendResponse(data);
     } catch (err) {
-      console.error('[Notion Saver] Extract error:', err);
+      console.error('[NotionSnap] Extract error:', err);
       sendResponse({ error: err.message, title: document.title });
     }
   }

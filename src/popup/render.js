@@ -1,4 +1,4 @@
-// Rendering functions for Notion Saver popup
+// Rendering functions for NotionSnap popup
 // All DOM container references are passed as parameters
 
 import { escapeHtml } from './lib.js';

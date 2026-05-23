@@ -1,4 +1,4 @@
-# Notion Saver
+# NotionSnap
 
 Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文章的稳定完整抓取，替代 Notion Web Clipper（不稳定）和 Copy to Notion（付费）。
 
