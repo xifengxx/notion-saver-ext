@@ -18,8 +18,8 @@ html, body {
   overflow-y: auto;
   transition: background 0.3s, color 0.3s;
   /* 默认回退（无主题 class 时） */
-  background: var(--popup-bg, #ffffff);
-  color: var(--text-color, #37352f);
+  background: var(--popup-bg);
+  color: var(--text-color);
 }
 
 header {
@@ -28,7 +28,7 @@ header {
   align-items: center;
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  border-bottom: 1px solid var(--divider-color);
 }
 
 .header-actions {
@@ -68,7 +68,7 @@ header h1 {
 .divider {
   height: 1px;
   border: none;
-  border-top: 1px solid rgba(128, 128, 128, 0.3);
+  border-top: 1px solid var(--divider-color);
   margin: 12px 0;
 }
 
@@ -165,9 +165,9 @@ header h1 {
 
 /* 卡片容器 */
 .card {
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 8px;
-  background: rgba(128, 128, 128, 0.04);
+  border: 1px solid var(--content-border);
+  border-radius: var(--content-radius);
+  background: var(--content-bg);
 }
 
 /* 页面选择器触发器（在卡片内）— 现在是可输入的可搜索下拉框 */
@@ -285,7 +285,7 @@ header h1 {
 }
 
 .page-list-item-recent .page-title {
-  color: var(--accent-color, #6d5cff);
+  color: var(--accent-color);
 }
 
 .page-list-item {
@@ -516,7 +516,7 @@ header h1 {
   justify-content: space-between;
   margin-bottom: 12px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  border-bottom: 1px solid var(--divider-color);
   gap: 8px;
 }
 
@@ -653,8 +653,8 @@ header h1 {
   padding: 6px 16px;
   border: none;
   border-radius: 6px;
-  background: var(--error-bg, rgba(239, 68, 68, 0.15));
-  color: var(--error-color, #ef4444);
+  background: var(--error-bg);
+  color: var(--error-color);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -666,17 +666,11 @@ header h1 {
 }
 
 .popup.theme-raycast .unbind-confirm {
-  background: rgba(255, 255, 255, 0.05);
   border-color: rgba(239, 68, 68, 0.4);
-}
-
-.popup.theme-raycast .unbind-confirm-text {
-  color: #f5f5f5;
 }
 
 .popup.theme-raycast .unbind-ok-btn {
   background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
 }
 
 .hint {
@@ -833,53 +827,69 @@ header h1 {
 }
 
 .popup.theme-raycast {
-  background: #1e1e2e;
-  color: #f5f5f5;
+  /* === CSS 变量契约（38 个） === */
+  --popup-bg: #1e1e2e;
+  --text-color: #f5f5f5;
+  --meta-color: #8888aa;
+  --secondary-text: #d0d0e0;
+  --hover-bg: rgba(255, 255, 255, 0.05);
+  --accent-color: #e040fb;
+  --focus-color: #e040fb;
   --divider-color: rgba(255, 255, 255, 0.08);
+  --content-bg: rgba(255, 255, 255, 0.05);
+  --content-border: rgba(255, 255, 255, 0.12);
+  --content-radius: 10px;
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --input-border: rgba(255, 255, 255, 0.12);
+  --input-radius: 8px;
+  --btn-bg: linear-gradient(135deg, #e040fb, #ff5252);
+  --btn-text: #ffffff;
+  --btn-radius: 8px;
+  --btn-disabled-bg: rgba(255, 255, 255, 0.06);
+  --btn-disabled-text: #666680;
+  --dropdown-bg: #1e1e2e;
+  --dropdown-border: rgba(255, 255, 255, 0.1);
+  --dropdown-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --list-bg: transparent;
+  --list-label-bg: transparent;
+  --section-border: rgba(255, 255, 255, 0.04);
+  --selected-bg: rgba(224, 64, 251, 0.1);
+  --active-bg: rgba(224, 64, 251, 0.06);
+  --active-border: rgba(224, 64, 251, 0.3);
+  --secondary-btn-bg: rgba(255, 255, 255, 0.04);
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --success-border: rgba(16, 185, 129, 0.2);
+  --success-color: #10b981;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --error-border: rgba(239, 68, 68, 0.2);
+  --error-color: #ef4444;
+  --loading-bg: rgba(255, 255, 255, 0.03);
+  --loading-border: rgba(255, 255, 255, 0.06);
+  --panel-bg: #1e1e2e;
+  --placeholder-color: #666680;
+
+  /* 应用变量到自身 */
+  background: var(--popup-bg);
+  color: var(--text-color);
 }
 
-.popup.theme-raycast .settings-header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
+/* Raycast 主题 — 仅保留无法变量化的特殊效果 */
 .popup.theme-raycast header h1 {
   background: linear-gradient(135deg, #e040fb, #ff5252);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-.popup.theme-raycast header .icon-btn {
-  color: #8888aa;
-}
-
 .popup.theme-raycast .icon-btn:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.popup.theme-raycast .divider {
-  border-top-color: rgba(255, 255, 255, 0.08);
-}
-
 .popup.theme-raycast .card {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
   backdrop-filter: blur(10px);
 }
 
 .popup.theme-raycast #content-preview {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
   backdrop-filter: blur(10px);
-}
-
-.popup.theme-raycast .type-label {
-  color: #e040fb;
-}
-
-.popup.theme-raycast .editable-title {
-  color: #f5f5f5;
 }
 
 .popup.theme-raycast .editable-title:hover {
@@ -888,27 +898,11 @@ header h1 {
 }
 
 .popup.theme-raycast .editable-title:focus {
-  border-color: #e040fb;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.popup.theme-raycast .meta-info,
-.popup.theme-raycast .edit-icon,
-.popup.theme-raycast .page-picker-arrow,
-.popup.theme-raycast #page-picker-label,
-.popup.theme-raycast .page-list-label,
-.popup.theme-raycast .page-list-loading,
-.popup.theme-raycast .page-list-empty,
-.popup.theme-raycast .page-list-more,
-.popup.theme-raycast .save-section label,
-.popup.theme-raycast .workspace-section label {
-  color: #8888aa;
-}
-
 .popup.theme-raycast .page-picker-trigger {
-  background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
 }
 
 .popup.theme-raycast .page-picker-trigger:hover {
@@ -916,71 +910,12 @@ header h1 {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.popup.theme-raycast .page-picker-dropdown {
-  background: #1e1e2e;
-  border-color: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-.popup.theme-raycast #page-search {
-  color: #f5f5f5;
-}
-
-.popup.theme-raycast #page-search::placeholder {
-  color: #666680;
-}
-
-.popup.theme-raycast #page-search:focus {
-  color: #f5f5f5;
-}
-
-.popup.theme-raycast .page-list {
-  background: transparent;
-  border-color: transparent;
-  border-radius: 8px;
-}
-
-.popup.theme-raycast .page-list-section {
-  border-bottom-color: rgba(255, 255, 255, 0.04);
-}
-
-.popup.theme-raycast .page-list-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.popup.theme-raycast .page-list-item.selected {
-  background: rgba(224, 64, 251, 0.1);
-  border-left-color: #e040fb;
-}
-
-.popup.theme-raycast .page-title {
-  color: #d0d0e0;
-}
-
-.popup.theme-raycast .save-btn {
-  background: linear-gradient(135deg, #e040fb, #ff5252);
-  color: #fff;
-  border-radius: 8px;
-}
-
-.popup.theme-raycast .save-btn:disabled {
-  background: rgba(255, 255, 255, 0.06);
-  color: #666680;
-}
-
 .popup.theme-raycast .workspace-card {
-  background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.06);
-}
-
-.popup.theme-raycast .workspace-card select {
-  color: #d0d0e0;
 }
 
 .popup.theme-raycast .workspace-card select option {
   background: #252540;
-  color: #d0d0e0;
 }
 
 .popup.theme-raycast .workspace-card:hover {
@@ -996,39 +931,10 @@ header h1 {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-.popup.theme-raycast .status.success {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-}
-
-.popup.theme-raycast .status.error {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
-.popup.theme-raycast .status.loading-status {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.06);
-}
-
-.popup.theme-raycast .settings-panel {
-  background: #1e1e2e;
-}
-
 .popup.theme-raycast .settings-header h2 {
   background: linear-gradient(135deg, #e040fb, #ff5252);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-}
-
-.popup.theme-raycast .field input,
-.popup.theme-raycast .field select {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  color: #d0d0e0;
 }
 
 .popup.theme-raycast .field select option {
@@ -1037,52 +943,12 @@ header h1 {
 
 .popup.theme-raycast .workspace-item {
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-}
-
-.popup.theme-raycast .workspace-item.active {
-  border: 1px solid rgba(224, 64, 251, 0.3);
-  background: rgba(224, 64, 251, 0.06);
-}
-
-.popup.theme-raycast .workspace-name {
-  color: #d0d0e0;
-}
-
-.popup.theme-raycast .add-workspace-form input {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  color: #d0d0e0;
-}
-
-.popup.theme-raycast .add-workspace-form input::placeholder {
-  color: #666680;
-}
-
-.popup.theme-raycast .secondary-btn {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.06);
-  color: #d0d0e0;
-}
-
-.popup.theme-raycast .primary-btn {
-  background: linear-gradient(135deg, #e040fb, #ff5252);
-  color: #fff;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .popup.theme-raycast .theme-indicator {
   background: rgba(224, 64, 251, 0.1);
   color: #e040fb;
-}
-
-.popup.theme-raycast .search-icon::before {
-  border-color: #8888aa;
-}
-
-.popup.theme-raycast .search-icon::after {
-  background: #8888aa;
 }
 
 /* 登录界面 */
@@ -1156,9 +1022,9 @@ header h1 {
 .logout-btn {
   width: 100%;
   padding: 8px;
-  background: var(--error-bg, rgba(239, 68, 68, 0.1));
-  color: var(--error-color, #ef4444);
-  border: 1px solid var(--error-border, rgba(239, 68, 68, 0.2));
+  background: var(--error-bg);
+  color: var(--error-color);
+  border: 1px solid var(--error-border);
   border-radius: var(--btn-radius);
   font-size: 13px;
   font-weight: 600;
@@ -1170,24 +1036,13 @@ header h1 {
   opacity: 0.8;
 }
 
-.popup.theme-raycast .login-btn {
-  background: linear-gradient(135deg, #e040fb, #ff5252);
-  color: #fff;
-}
-
 .popup.theme-raycast .workspace-info {
-  background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.08);
-}
-
-.popup.theme-raycast #workspace-name {
-  color: #d0d0e0;
 }
 
 .popup.theme-raycast .logout-btn {
   background: rgba(239, 68, 68, 0.15);
   border-color: rgba(239, 68, 68, 0.3);
-  color: #ef4444;
 }
 
 /* "在 Notion 中打开" 链接 */
@@ -1221,14 +1076,10 @@ header h1 {
 }
 
 .popup.theme-raycast .open-in-notion {
-  color: #e040fb;
-  background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.08);
 }
 
 .popup.theme-vercel .open-in-notion {
-  color: #000000;
-  background: #fafafa;
   border-color: #eaeaea;
 }
 
@@ -1236,78 +1087,63 @@ header h1 {
    主题 4: Vercel 黑白精准
    ============================================================ */
 .popup.theme-vercel {
-  background: #ffffff;
-  color: #000000;
+  /* === CSS 变量契约（38 个） === */
+  --popup-bg: #ffffff;
+  --text-color: #000000;
+  --meta-color: #666666;
+  --secondary-text: #333333;
+  --hover-bg: #f5f5f5;
+  --accent-color: #000000;
+  --focus-color: #000000;
   --divider-color: #e0e0e0;
+  --content-bg: #fafafa;
+  --content-border: #e0e0e0;
+  --content-radius: 6px;
+  --input-bg: #ffffff;
+  --input-border: #e0e0e0;
+  --input-radius: 6px;
+  --btn-bg: #000000;
+  --btn-text: #ffffff;
+  --btn-radius: 6px;
+  --btn-disabled-bg: #eaeaea;
+  --btn-disabled-text: #999999;
+  --dropdown-bg: #ffffff;
+  --dropdown-border: #eaeaea;
+  --dropdown-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  --list-bg: #fafafa;
+  --list-label-bg: transparent;
+  --section-border: #eaeaea;
+  --selected-bg: #f0f0f0;
+  --active-bg: #f0f0f0;
+  --active-border: #000000;
+  --secondary-btn-bg: #f5f5f5;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --success-border: rgba(16, 185, 129, 0.2);
+  --success-color: #10b981;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --error-border: rgba(239, 68, 68, 0.2);
+  --error-color: #ef4444;
+  --loading-bg: #fafafa;
+  --loading-border: #eaeaea;
+  --panel-bg: #ffffff;
+  --placeholder-color: #999999;
+
+  /* 应用变量到自身 */
+  background: var(--popup-bg);
+  color: var(--text-color);
 }
 
-.popup.theme-vercel .settings-header {
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.popup.theme-vercel header h1 {
-  color: #000000;
-}
-
-.popup.theme-vercel .icon-btn {
-  color: #666666;
-}
-
-.popup.theme-vercel .icon-btn:hover {
-  background: #f5f5f5;
-}
-
-.popup.theme-vercel .divider {
-  border-top-color: #e0e0e0;
-}
-
+/* Vercel 主题 — 仅保留无法变量化的特殊效果 */
 .popup.theme-vercel .card {
-  background: #fafafa;
   border-color: #eaeaea;
-  border-radius: 6px;
-}
-
-.popup.theme-vercel #content-preview {
-  background: #fafafa;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-}
-
-.popup.theme-vercel .type-label {
-  color: #000000;
-}
-
-.popup.theme-vercel .editable-title {
-  color: #000000;
 }
 
 .popup.theme-vercel .editable-title:hover {
-  background: #f5f5f5;
   border-color: #eaeaea;
-}
-
-.popup.theme-vercel .editable-title:focus {
-  border-color: #000000;
-  background: #f5f5f5;
-}
-
-.popup.theme-vercel .meta-info,
-.popup.theme-vercel .edit-icon,
-.popup.theme-vercel .page-picker-arrow,
-.popup.theme-vercel #page-picker-label,
-.popup.theme-vercel .page-list-label,
-.popup.theme-vercel .page-list-loading,
-.popup.theme-vercel .page-list-empty,
-.popup.theme-vercel .page-list-more,
-.popup.theme-vercel .save-section label,
-.popup.theme-vercel .workspace-section label {
-  color: #666666;
 }
 
 .popup.theme-vercel .page-picker-trigger {
-  background: #ffffff;
   border-color: #eaeaea;
-  border-radius: 6px;
 }
 
 .popup.theme-vercel .page-picker-trigger:hover {
@@ -1315,71 +1151,12 @@ header h1 {
   background: #fafafa;
 }
 
-.popup.theme-vercel .page-picker-dropdown {
-  background: #ffffff;
-  border-color: #eaeaea;
-  border-radius: 6px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-}
-
-.popup.theme-vercel #page-search {
-  color: #000000;
-}
-
-.popup.theme-vercel #page-search::placeholder {
-  color: #999999;
-}
-
-.popup.theme-vercel #page-search:focus {
-  color: #000000;
-}
-
-.popup.theme-vercel .page-list {
-  background: #fafafa;
-  border-color: #eaeaea;
-  border-radius: 6px;
-}
-
-.popup.theme-vercel .page-list-section {
-  border-bottom-color: #eaeaea;
-}
-
-.popup.theme-vercel .page-list-item:hover {
-  background: #f5f5f5;
-}
-
-.popup.theme-vercel .page-list-item.selected {
-  background: #f0f0f0;
-  border-left-color: #000000;
-}
-
-.popup.theme-vercel .page-title {
-  color: #333333;
-}
-
-.popup.theme-vercel .save-btn {
-  background: #000000;
-  color: #ffffff;
-  border-radius: 6px;
-}
-
-.popup.theme-vercel .save-btn:disabled {
-  background: #eaeaea;
-  color: #999999;
-}
-
 .popup.theme-vercel .workspace-card {
-  background: #fafafa;
   border-color: #eaeaea;
-}
-
-.popup.theme-vercel .workspace-card select {
-  color: #333333;
 }
 
 .popup.theme-vercel .workspace-card select option {
   background: #ffffff;
-  color: #333333;
 }
 
 .popup.theme-vercel .workspace-card:hover {
@@ -1387,86 +1164,12 @@ header h1 {
   background: #f5f5f5;
 }
 
-.popup.theme-vercel .workspace-item:hover {
-  background: #f5f5f5;
-}
-
 .popup.theme-vercel .field select:hover {
   border-color: #ccc;
 }
 
-.popup.theme-vercel .status.success {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-}
-
-.popup.theme-vercel .status.error {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
-.popup.theme-vercel .status.loading-status {
-  background: #fafafa;
-  border-color: #eaeaea;
-}
-
-.popup.theme-vercel .settings-panel {
-  background: #ffffff;
-}
-
-.popup.theme-vercel .settings-header h2 {
-  color: #000000;
-}
-
-.popup.theme-vercel .field input,
-.popup.theme-vercel .field select {
-  background: #ffffff;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  color: #333333;
-}
-
 .popup.theme-vercel .field select option {
   background: #ffffff;
-}
-
-.popup.theme-vercel .workspace-item {
-  background: #fafafa;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-}
-
-.popup.theme-vercel .workspace-item.active {
-  border: 1px solid #000000;
-  background: #f0f0f0;
-}
-
-.popup.theme-vercel .workspace-name {
-  color: #333333;
-}
-
-.popup.theme-vercel .add-workspace-form input {
-  background: #ffffff;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  color: #333333;
-}
-
-.popup.theme-vercel .add-workspace-form input::placeholder {
-  color: #999999;
-}
-
-.popup.theme-vercel .secondary-btn {
-  background: #f5f5f5;
-  border-color: #eaeaea;
-  color: #333333;
-}
-
-.popup.theme-vercel .primary-btn {
-  background: #000000;
-  color: #ffffff;
 }
 
 .popup.theme-vercel .theme-indicator {
@@ -1474,31 +1177,7 @@ header h1 {
   color: #ffffff;
 }
 
-.popup.theme-vercel .search-icon::before {
-  border-color: #666666;
-}
-
-.popup.theme-vercel .search-icon::after {
-  background: #666666;
-}
-
-.popup.theme-vercel .login-btn {
-  background: #000000;
-  color: #ffffff;
-}
-
-.popup.theme-vercel .workspace-info {
-  background: #fafafa;
-  border-color: #eaeaea;
-}
-
-.popup.theme-vercel #workspace-name {
-  color: #333333;
-}
-
 .popup.theme-vercel .logout-btn {
   background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
 }
 

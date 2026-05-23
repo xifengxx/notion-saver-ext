@@ -2,8 +2,8 @@
 // 纯原生实现，不依赖外部库
 
 // Node 常量数字值（避免沙箱环境中 Node 未定义）
-const TEXT_NODE = 3;
-const ELEMENT_NODE = 1;
+var TEXT_NODE = 3;
+var ELEMENT_NODE = 1;
 
 // ============================================================
 // Notion Block 工厂
@@ -446,20 +446,6 @@ function processParagraph(el, blocks) {
       }
     }
   }
-}
-
-function extractTableText(table) {
-  var rows = [];
-  var trs = table.querySelectorAll('tr');
-  for (var i = 0; i < trs.length; i++) {
-    var cells = [];
-    var tds = trs[i].querySelectorAll('td, th');
-    for (var j = 0; j < tds.length; j++) {
-      cells.push(tds[j].textContent.trim().replace(/\n/g, ' '));
-    }
-    if (cells.length) rows.push(cells.join(' | '));
-  }
-  return rows.join('\n');
 }
 
 function extractTableAsNotionTable(table) {

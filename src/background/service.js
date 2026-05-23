@@ -6,6 +6,13 @@ var BACKEND_URL = 'https://notion-saver-ext-production.up.railway.app';
 var RATE_LIMIT_DELAY = 400;
 var BLOCK_LIMIT = 100;
 
+var STORE = {
+  WORKSPACES: 'notion_workspaces',
+  CURRENT_BOT: 'notion_current_workspace_bot_id',
+  TOKEN_FAILED: 'notion_token_refresh_failed',
+  OAUTH_SESSION: 'oauth_session_id',
+};
+
 // ============================================================
 // OAuth 登录轮询（在 background 运行，不受 popup 关闭影响）
 // ============================================================
@@ -22,7 +29,7 @@ function generateSessionId() {
 
 function startOAuthLogin() {
   var sessionId = generateSessionId();
-  chrome.storage.local.set({ oauth_session_id: sessionId });
+  chrome.storage.local.set({ [STORE.OAUTH_SESSION]: sessionId });
 
   chrome.tabs.create({ url: BACKEND_URL + '/auth?session=' + sessionId, active: true });
 
@@ -43,9 +50,9 @@ function startOAuthLogin() {
           delete oauthPollTimers[sessionId];
 
           // 获取已有的 workspace 列表
-          chrome.storage.local.get(['notion_workspaces', 'notion_current_workspace_bot_id'], function(result) {
-            var workspaces = result.notion_workspaces || [];
-            var currentBotId = result.notion_current_workspace_bot_id || null;
+          chrome.storage.local.get([STORE.WORKSPACES, STORE.CURRENT_BOT], function(result) {
+            var workspaces = result[STORE.WORKSPACES] || [];
+            var currentBotId = result[STORE.CURRENT_BOT] || null;
             var botId = data.bot_id;
 
             // 检查是否已有该空间
@@ -69,8 +76,8 @@ function startOAuthLogin() {
             }
 
             chrome.storage.local.set({
-              notion_workspaces: workspaces,
-              notion_current_workspace_bot_id: currentBotId,
+              [STORE.WORKSPACES]: workspaces,
+              [STORE.CURRENT_BOT]: currentBotId,
             });
           });
         }
@@ -150,11 +157,11 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
 function getValidToken() {
   return new Promise(function(resolve) {
     chrome.storage.local.get([
-      'notion_workspaces',
-      'notion_current_workspace_bot_id',
+      STORE.WORKSPACES,
+      STORE.CURRENT_BOT,
     ], function(result) {
-      var workspaces = result.notion_workspaces || [];
-      var currentBotId = result.notion_current_workspace_bot_id;
+      var workspaces = result[STORE.WORKSPACES] || [];
+      var currentBotId = result[STORE.CURRENT_BOT];
 
       if (!currentBotId || workspaces.length === 0) {
         resolve(null);
@@ -175,9 +182,22 @@ function getValidToken() {
             ws.access_token = newTokens.access_token;
             ws.refresh_token = newTokens.refresh_token;
             ws.expires_at = newTokens.expires_at;
-            chrome.storage.local.set({ notion_workspaces: workspaces });
+            chrome.storage.local.set({
+              [STORE.WORKSPACES]: workspaces,
+              [STORE.TOKEN_FAILED]: false,
+            });
             resolve(ws.access_token);
-          }).catch(function() {
+          }).catch(function(err) {
+            console.error('[Notion Saver] Token refresh failed:', err && err.message ? err.message : err);
+            chrome.storage.local.set({ [STORE.TOKEN_FAILED]: true });
+            try {
+              chrome.notifications.create('token-refresh-failed', {
+                type: 'basic',
+                iconUrl: 'public/icons/icon-48.png',
+                title: 'Notion Saver — 认证已过期',
+                message: '请点击扩展图标重新登录',
+              });
+            } catch (e) { /* notifications may not be available */ }
             resolve(null);
           });
         } else {
@@ -209,6 +229,9 @@ function refreshToken(refreshTokenValue) {
 // Notion API 核心保存流程
 // ============================================================
 function saveToNotion(data, parentPageId, workspaceBotId) {
+  // 标记保存进行中，用于检测 SW 终止导致的中断
+  chrome.storage.local.set({ notion_save_state: { status: 'in_progress', startedAt: Date.now() } });
+
   return getValidToken().then(function(token) {
     if (!token) {
       return { success: false, error: '未登录或认证已过期，请重新登录' };
@@ -224,6 +247,7 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
       });
 
       if (blocks.length === 0) {
+        chrome.storage.local.set({ notion_save_state: { status: 'completed', at: Date.now() } });
         return {
           success: true,
           pageUrl: page.url,
@@ -238,6 +262,7 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
       }
 
       return appendAllBlocks(token, pageId, chunks, 0).then(function() {
+        chrome.storage.local.set({ notion_save_state: { status: 'completed', at: Date.now() } });
         return {
           success: true,
           pageUrl: page.url,
@@ -248,6 +273,15 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
     });
   }).catch(function(err) {
     console.error('[Notion Saver] Save failed:', err);
+    chrome.storage.local.set({ notion_save_state: { status: 'failed', error: err.message || '保存失败', at: Date.now() } });
+    try {
+      chrome.notifications.create('save-failed', {
+        type: 'basic',
+        iconUrl: 'public/icons/icon-48.png',
+        title: 'Notion Saver — 保存失败',
+        message: err.message || '保存过程中断，请重试',
+      });
+    } catch (e) { /* notifications may not be available */ }
     return { success: false, error: err.message || '保存失败' };
   });
 }

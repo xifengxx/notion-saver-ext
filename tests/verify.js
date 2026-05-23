@@ -303,7 +303,7 @@ describe('模拟测试：消息路由逻辑', () => {
     'save_to_notion',
     'get_settings',
     'save_settings',
-    'test_connection',
+    'start_oauth_login',
     'fetch_pages',
   ];
 
