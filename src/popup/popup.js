@@ -1,6 +1,6 @@
 // Popup UI 逻辑 — OAuth 多空间版本
 import { STORE, recentPagesKey, escapeHtml, presetsKey, saveHistoryKey } from './lib.js';
-import { renderPageList, renderSettingsWorkspaceList, renderPresetsRow, renderHistoryList, renderHistoryEmpty } from './render.js';
+import { renderPageList, renderSettingsWorkspaceList, renderPresetsRow, renderHistoryList, renderHistoryEmpty, getPillColor } from './render.js';
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -704,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderPresetsUI() {
     presetsSection.classList.remove('hidden');
-    renderPresetsRow(presets, activePresetId, presetsRow, onPresetSelect, showPresetCreateForm);
+    renderPresetsRow(presets, activePresetId, presetsRow, 15, onPresetSelect, showPresetCreateForm);
   }
 
   function onPresetSelect(preset) {
@@ -748,7 +748,7 @@ document.addEventListener('DOMContentLoaded', () => {
       createdAt: Date.now(),
     };
     presets.unshift(preset);
-    if (presets.length > 20) presets = presets.slice(0, 20);
+    if (presets.length > 15) presets = presets.slice(0, 15);
     activePresetId = preset.id;
 
     var kv = {};
@@ -781,17 +781,16 @@ document.addEventListener('DOMContentLoaded', () => {
     var html = '';
     for (var i = 0; i < presets.length; i++) {
       var p = presets[i];
-      html += '<div class="preset-manage-item">' +
-        '<div class="preset-manage-info">' +
-        '<div class="preset-manage-name">' + escapeHtml(p.name) + '</div>' +
-        '<div class="preset-manage-target">→ ' + escapeHtml(p.targetPageTitle) + '</div>' +
-        '</div>' +
-        '<button class="preset-manage-delete" data-preset-id="' + p.id + '" title="删除预设">×</button>' +
-        '</div>';
+      var color = getPillColor(i);
+      var style = 'background:' + color.bg + ';color:' + color.text + ';border-color:' + color.bg;
+      html += '<span class="preset-pill preset-pill-settings" style="' + style + '">' +
+        '<span class="preset-pill-settings-name">' + escapeHtml(p.name) + '</span>' +
+        '<button class="preset-pill-settings-del" data-preset-id="' + p.id + '" title="删除「' + escapeHtml(p.name) + '」">×</button>' +
+        '</span>';
     }
     settingsPresetsList.innerHTML = html;
 
-    settingsPresetsList.querySelectorAll('.preset-manage-delete').forEach(function(btn) {
+    settingsPresetsList.querySelectorAll('.preset-pill-settings-del').forEach(function(btn) {
       btn.addEventListener('click', function() {
         onDeletePreset(this.getAttribute('data-preset-id'));
       });

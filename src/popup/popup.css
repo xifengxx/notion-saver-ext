@@ -797,8 +797,14 @@ header h1 {
   border-radius: var(--input-radius);
   font-size: 12px;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
   white-space: nowrap;
+}
+
+.shortcut-config-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--active-border);
+  opacity: 0.85;
 }
 
 .settings-empty {
@@ -1304,7 +1310,7 @@ header h1 {
    预设 Pills（v0.4.0）
    ============================================================ */
 .presets-section {
-  margin-bottom: 8px;
+  margin-bottom: 14px;
 }
 
 .presets-row {
@@ -1323,27 +1329,24 @@ header h1 {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  background: var(--content-bg);
-  border: 1px solid var(--content-border);
-  color: var(--secondary-text);
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  border: 1px solid transparent;
+  transition: opacity 0.15s, box-shadow 0.15s;
   white-space: nowrap;
 }
 
 .preset-pill:hover {
-  background: var(--hover-bg);
-  border-color: var(--active-border);
+  opacity: 0.85;
 }
 
 .preset-pill.active {
-  background: var(--selected-bg);
-  border-color: var(--accent-color);
-  color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-color);
+  opacity: 1;
 }
 
 .preset-pill-add {
   background: transparent;
-  border-style: dashed;
+  border: 1px dashed var(--content-border);
+  color: var(--secondary-text);
   opacity: 0.5;
   font-size: 14px;
   padding: 3px 8px;
@@ -1422,6 +1425,7 @@ header h1 {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  max-height: 400px;
   padding-right: 10px;
 }
 
@@ -1557,61 +1561,65 @@ header h1 {
   margin-top: 4px;
 }
 
+.presets-manage-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
 .presets-manage h3 {
   font-size: 13px;
   font-weight: 700;
-  margin: 0 0 6px 0;
+  margin: 0;
   color: var(--text-color);
-}
-
-.preset-manage-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 10px;
-  border: 1px solid var(--input-border);
-  border-radius: var(--input-radius);
-  margin-bottom: 6px;
-  background: var(--list-bg);
-}
-
-.preset-manage-item:last-child {
-  margin-bottom: 0;
-}
-
-.preset-manage-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.preset-manage-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--secondary-text);
-}
-
-.preset-manage-target {
-  font-size: 10px;
-  color: var(--meta-color);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.preset-manage-delete {
-  background: none;
+#settings-presets-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.preset-pill-settings {
+  cursor: pointer;
+  gap: 4px;
+  padding: 3px 6px 3px 10px;
+  transition: opacity 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.preset-pill-settings:hover {
+  opacity: 0.85;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+}
+
+.preset-pill-settings-name {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.preset-pill-settings-del {
+  background: rgba(0,0,0,0.15);
   border: none;
   cursor: pointer;
-  font-size: 14px;
-  color: var(--meta-color);
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-size: 12px;
+  color: inherit;
+  padding: 0 4px;
+  border-radius: 50%;
+  line-height: 16px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  opacity: 0.7;
 }
 
-.preset-manage-delete:hover {
-  color: var(--error-color);
-  background: var(--error-bg);
+.preset-pill-settings-del:hover {
+  opacity: 1;
+  background: rgba(0,0,0,0.25);
 }
-
 

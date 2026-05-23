@@ -3,6 +3,72 @@
 
 import { escapeHtml } from './lib.js';
 
+// 预设 pill 5 个基础色（背景色、文字色）
+var PILL_BASE_COLORS = [
+  { bg: '#3B82F6', text: '#FFFFFF' },
+  { bg: '#10B981', text: '#FFFFFF' },
+  { bg: '#8B5CF6', text: '#FFFFFF' },
+  { bg: '#F59E0B', text: '#1F2937' },
+  { bg: '#EC4899', text: '#FFFFFF' }
+];
+
+function hslFromHex(hex) {
+  var r = parseInt(hex.slice(1,3), 16) / 255;
+  var g = parseInt(hex.slice(3,5), 16) / 255;
+  var b = parseInt(hex.slice(5,7), 16) / 255;
+  var max = Math.max(r, g, b), min = Math.min(r, g, b);
+  var h, s, l = (max + min) / 2;
+  if (max === min) { h = s = 0; }
+  else {
+    var d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return { h: h, s: s, l: l };
+}
+
+function hexFromHsl(h, s, l) {
+  var r, g, b;
+  if (s === 0) { r = g = b = l; }
+  else {
+    function hue2rgb(p, q, t) {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    }
+    var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    var p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return '#' + [r, g, b].map(function(x) {
+    var hex = Math.round(x * 255).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+export function getPillColor(index) {
+  var base = PILL_BASE_COLORS[index % 5];
+  if (index < 5) return base;
+  var cycle = Math.floor(index / 5);
+  var hsl = hslFromHex(base.bg);
+  // 奇数轮变淡，偶数轮变深
+  var adjust = cycle % 2 === 1 ? 0.08 : -0.08;
+  var newL = Math.max(0.1, Math.min(0.9, hsl.l + adjust * (cycle + 1) / 2));
+  var newBg = hexFromHsl(hsl.h, hsl.s, newL);
+  // 背景亮度决定文字颜色
+  var textColor = newL > 0.55 ? '#1F2937' : '#FFFFFF';
+  return { bg: newBg, text: textColor };
+}
+
 export function renderPageList(databases, pages, recent, pageListEl, onSelect) {
   var html = '';
   recent = recent || [];
@@ -110,15 +176,19 @@ export function renderSettingsWorkspaceList(workspaces, currentBotId, containerE
 // ============================================================
 // 预设 Pills 渲染（v0.4.0）
 // ============================================================
-export function renderPresetsRow(presets, activePresetId, containerEl, onSelect, onCreate) {
+export function renderPresetsRow(presets, activePresetId, containerEl, maxCount, onSelect, onCreate) {
   var html = '';
   for (var i = 0; i < presets.length; i++) {
     var p = presets[i];
     var isActive = p.id === activePresetId;
-    html += '<span class="preset-pill' + (isActive ? ' active' : '') + '" data-preset-id="' + p.id + '">' +
+    var color = getPillColor(i);
+    var style = 'background:' + color.bg + ';color:' + color.text + ';border-color:' + color.bg;
+    html += '<span class="preset-pill' + (isActive ? ' active' : '') + '" data-preset-id="' + p.id + '" style="' + style + '">' +
       escapeHtml(p.name) + '</span>';
   }
-  html += '<span class="preset-pill preset-pill-add" id="preset-add-btn">+</span>';
+  if (presets.length < maxCount) {
+    html += '<span class="preset-pill preset-pill-add" id="preset-add-btn">+</span>';
+  }
   containerEl.innerHTML = html;
 
   containerEl.querySelectorAll('.preset-pill[data-preset-id]').forEach(function(pill) {
