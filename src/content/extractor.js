@@ -246,7 +246,15 @@ function processElement(el, tag, blocks) {
   // 标题
   if (/^h[1-6]$/.test(tag)) {
     var level = parseInt(tag[1]);
-    var rt = richTextFromNode(el);
+    var headingImgs = el.querySelectorAll('img');
+    for (var hi = 0; hi < headingImgs.length; hi++) {
+      var hiSrc = headingImgs[hi].getAttribute('src') || headingImgs[hi].getAttribute('data-src') || '';
+      if (hiSrc) blocks.push(imageBlock(hiSrc, ''));
+    }
+    var cloneH = el.cloneNode(true);
+    var cloneHImgs = cloneH.querySelectorAll('img');
+    for (var hj = 0; hj < cloneHImgs.length; hj++) cloneHImgs[hj].remove();
+    var rt = richTextFromNode(cloneH);
     if (rt.length > 0) blocks.push(headingBlock(level, rt));
   }
   // 段落
@@ -255,7 +263,15 @@ function processElement(el, tag, blocks) {
   }
   // 引用
   else if (tag === 'blockquote') {
-    var rtQ = richTextFromNode(el);
+    var bqImgs = el.querySelectorAll('img');
+    for (var bi = 0; bi < bqImgs.length; bi++) {
+      var bqSrc = bqImgs[bi].getAttribute('src') || bqImgs[bi].getAttribute('data-src') || '';
+      if (bqSrc) blocks.push(imageBlock(bqSrc, ''));
+    }
+    var bqClone = el.cloneNode(true);
+    var bqCloneImgs = bqClone.querySelectorAll('img');
+    for (var bj = 0; bj < bqCloneImgs.length; bj++) bqCloneImgs[bj].remove();
+    var rtQ = richTextFromNode(bqClone);
     if (rtQ.length > 0) blocks.push(quoteBlock(rtQ));
   }
   // 无序列表
@@ -263,8 +279,7 @@ function processElement(el, tag, blocks) {
     var liChildren = el.children;
     for (var i = 0; i < liChildren.length; i++) {
       if (liChildren[i].tagName.toLowerCase() === 'li') {
-        var rt = richTextFromNode(liChildren[i]);
-        if (rt.length > 0) blocks.push(bulletedListItemBlock(rt));
+        processListItem(liChildren[i], blocks, 'bulleted');
       }
     }
   }
@@ -273,8 +288,7 @@ function processElement(el, tag, blocks) {
     var liChildren2 = el.children;
     for (var i = 0; i < liChildren2.length; i++) {
       if (liChildren2[i].tagName.toLowerCase() === 'li') {
-        var rt = richTextFromNode(liChildren2[i]);
-        if (rt.length > 0) blocks.push(numberedListItemBlock(rt));
+        processListItem(liChildren2[i], blocks, 'numbered');
       }
     }
   }
@@ -370,7 +384,7 @@ function processElement(el, tag, blocks) {
     if (tableBlock) blocks.push(tableBlock);
   }
   // 容器：递归深入处理子元素
-  else if (['div', 'section', 'article', 'main', 'figure', 'figcaption', 'header', 'footer', 'aside', 'nav'].indexOf(tag) !== -1) {
+  else if (['div', 'section', 'article', 'main', 'figure', 'figcaption', 'header', 'footer', 'aside', 'nav', 'a'].indexOf(tag) !== -1) {
     domToBlocks(el, blocks);
   }
   // 纯文本容器（span、label 等内联元素包裹的文字）
@@ -379,7 +393,7 @@ function processElement(el, tag, blocks) {
     var children2 = el.children;
     for (var ci = 0; ci < children2.length; ci++) {
       var ct = children2[ci].tagName.toLowerCase();
-      if (/^h[1-6]$/.test(ct) || ct === 'p' || ct === 'blockquote' || ct === 'ul' || ct === 'ol' || ct === 'pre' || ct === 'code' || ct === 'div' || ct === 'section' || ct === 'article' || ct === 'table') {
+      if (/^h[1-6]$/.test(ct) || ct === 'p' || ct === 'blockquote' || ct === 'ul' || ct === 'ol' || ct === 'pre' || ct === 'code' || ct === 'div' || ct === 'section' || ct === 'article' || ct === 'table' || ct === 'img') {
         hasBlockChild = true;
         break;
       }
@@ -392,6 +406,21 @@ function processElement(el, tag, blocks) {
     }
   }
   // 其他忽略
+}
+
+function processListItem(li, blocks, listType) {
+  var liImgs = li.querySelectorAll('img');
+  for (var i = 0; i < liImgs.length; i++) {
+    var imgSrc = liImgs[i].getAttribute('src') || liImgs[i].getAttribute('data-src') || '';
+    if (imgSrc) blocks.push(imageBlock(imgSrc, ''));
+  }
+  var liClone = li.cloneNode(true);
+  var cloneImgs = liClone.querySelectorAll('img');
+  for (var j = 0; j < cloneImgs.length; j++) cloneImgs[j].remove();
+  var rt = richTextFromNode(liClone);
+  if (rt.length > 0) {
+    blocks.push(listType === 'numbered' ? numberedListItemBlock(rt) : bulletedListItemBlock(rt));
+  }
 }
 
 function processParagraph(el, blocks) {

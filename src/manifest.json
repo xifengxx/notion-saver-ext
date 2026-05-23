@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Notion Saver",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "一键保存网页内容到 Notion",
   "permissions": [
     "activeTab",

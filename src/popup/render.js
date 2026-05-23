@@ -59,20 +59,37 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect) {
   });
 }
 
-export function renderSettingsWorkspaceList(workspaces, currentBotId, containerEl, onRemove) {
+var wsColors = ['#e040fb', '#ff5252', '#4285f4', '#10b981', '#f59e0b'];
+
+export function renderSettingsWorkspaceList(workspaces, currentBotId, containerEl, onRemove, onAdd) {
   if (!containerEl) return;
   var html = '';
   for (var i = 0; i < workspaces.length; i++) {
     var ws = workspaces[i];
     var isActive = ws.bot_id === currentBotId;
-    html += '<div class="workspace-item' + (isActive ? ' active' : '') + '">' +
+    var initial = (ws.workspace_name || 'N').charAt(0).toUpperCase();
+    var color = wsColors[i % wsColors.length];
+    var borderColor = isActive ? color : color + '44';
+    var avatarHtml;
+    if (ws.workspace_icon) {
+      avatarHtml = '<img class="workspace-icon-img" src="' + escapeHtml(ws.workspace_icon) + '" alt="" />';
+    } else {
+      avatarHtml = '<span class="workspace-avatar" style="background:' + color + '">' + escapeHtml(initial) + '</span>';
+    }
+    html += '<div class="workspace-item' + (isActive ? ' active' : '') + '" style="border-color:' + borderColor + '">' +
+      '<div class="workspace-info">' +
+      avatarHtml +
       '<span class="workspace-name">' + escapeHtml(ws.workspace_name || 'Notion') + '</span>' +
+      '</div>' +
       '<div class="workspace-actions">' +
       '<button class="remove-ws-btn" data-bot-id="' + ws.bot_id + '" title="解绑空间">×</button>' +
       '</div></div>';
   }
   if (workspaces.length === 0) {
-    html = '<div class="page-list-empty">尚未连接任何空间</div>';
+    html = '<div class="settings-empty">' +
+      '<p class="settings-empty-text">尚未连接任何空间</p>' +
+      '<button class="settings-empty-btn">连接到 Notion</button>' +
+      '</div>';
   }
   containerEl.innerHTML = html;
 
@@ -81,4 +98,11 @@ export function renderSettingsWorkspaceList(workspaces, currentBotId, containerE
       if (onRemove) onRemove(this.getAttribute('data-bot-id'));
     });
   });
+
+  var emptyBtn = containerEl.querySelector('.settings-empty-btn');
+  if (emptyBtn) {
+    emptyBtn.addEventListener('click', function() {
+      if (onAdd) onAdd();
+    });
+  }
 }

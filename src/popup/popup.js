@@ -16,7 +16,6 @@ document.addEventListener('DOMContentLoaded', () => {
   var settingsPanel = document.getElementById('settings-panel');
   var backFromSettings = document.getElementById('back-from-settings');
   var closeSettings = document.getElementById('close-settings');
-  var saveSettings = document.getElementById('save-settings');
   var settingsWorkspaceList = document.getElementById('settings-workspace-list');
   var unbindConfirm = document.getElementById('unbind-confirm');
   var unbindConfirmText = document.getElementById('unbind-confirm-text');
@@ -83,16 +82,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // 设置面板
   settingsBtn.addEventListener('click', () => {
     settingsPanel.classList.remove('hidden');
+    mainContent.classList.add('hidden');
+    document.querySelector('header').classList.add('hidden');
     closeDropdown();
-    renderSettingsWorkspaceList(workspaces, currentWorkspaceBotId, settingsWorkspaceList, showUnbindConfirm);
+    renderSettingsWorkspaceList(workspaces, currentWorkspaceBotId, settingsWorkspaceList, showUnbindConfirm, startOAuthLogin);
   });
 
-  backFromSettings.addEventListener('click', () => {
+  function closeSettingsPanel() {
     settingsPanel.classList.add('hidden');
-  });
+    mainContent.classList.remove('hidden');
+    document.querySelector('header').classList.remove('hidden');
+  }
+
+  backFromSettings.addEventListener('click', closeSettingsPanel);
 
   closeSettings.addEventListener('click', () => {
-    settingsPanel.classList.add('hidden');
+    closeSettingsPanel();
     hideUnbindConfirm();
   });
 
@@ -124,10 +129,6 @@ document.addEventListener('DOMContentLoaded', () => {
     unbindConfirm.classList.remove('hidden');
     pendingUnbindBotId = botId;
   }
-
-  saveSettings.addEventListener('click', () => {
-    settingsPanel.classList.add('hidden');
-  });
 
   // 页面选择器
   pagePickerTrigger.addEventListener('click', () => {
@@ -224,7 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
           loginScreen.classList.add('hidden');
           mainContent.classList.remove('hidden');
           loadTheme();
-          loadSettings();
           refreshWorkspaceUI();
           extractCurrentPage();
           loadPageData();
@@ -277,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (ws.bot_id === currentWorkspaceBotId) opt.selected = true;
       workspaceSelect.appendChild(opt);
     }
-    renderSettingsWorkspaceList(workspaces, currentWorkspaceBotId, settingsWorkspaceList, showUnbindConfirm);
+    renderSettingsWorkspaceList(workspaces, currentWorkspaceBotId, settingsWorkspaceList, showUnbindConfirm, startOAuthLogin);
   }
 
   function executeUnbind(botId) {
@@ -294,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, () => {
       refreshWorkspaceUI();
       if (workspaces.length === 0) {
-        settingsPanel.classList.add('hidden');
+        closeSettingsPanel();
         checkLogin();
       } else {
         loadPageData();
