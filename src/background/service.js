@@ -740,6 +740,7 @@ function showPageToast(tabId, type, message, pageUrl) {
 }
 
 function saveCurrentPage(tab) {
+  var saveParams = null; // 闭包变量，供后续 .then 使用
   showBadge('...', '#888888');
   extractFromTab(tab).then(function(data) {
     if (!data || data.error) {
@@ -768,7 +769,8 @@ function saveCurrentPage(tab) {
         chrome.storage.local.get([rpKey], function(rpResult) {
           var recentPages = rpResult[rpKey] || [];
           var parentId = recentPages.length > 0 ? recentPages[0].id : null;
-          resolve({ botId: botId, parentId: parentId, extractedData: data });
+          saveParams = { botId: botId, parentId: parentId, extractedData: data };
+          resolve(saveParams);
         });
       });
     });
@@ -782,13 +784,13 @@ function saveCurrentPage(tab) {
       clearBadgeAfter(5000);
       showPageToast(tab.id, 'success', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
       showSaveNotification('保存成功', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
-      recordHistory(params.extractedData, result, params.parentId ? '' : '', params.botId);
+      if (saveParams) recordHistory(saveParams.extractedData, result, '', saveParams.botId);
     } else {
       showBadge('!', '#ef4444');
       clearBadgeAfter(5000);
       showPageToast(tab.id, 'error', result.error || '保存失败');
       showSaveNotification('保存失败', result.error || '未知错误');
-      recordHistory(params.extractedData, result, params.parentId ? '' : '', params.botId);
+      if (saveParams) recordHistory(saveParams.extractedData, result, '', saveParams.botId);
     }
   }).catch(function(err) {
     showBadge('!', '#ef4444');

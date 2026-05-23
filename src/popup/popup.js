@@ -703,14 +703,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderPresetsUI() {
-    if (presets.length > 0) {
-      presetsSection.classList.remove('hidden');
-      renderPresetsRow(presets, activePresetId, presetsRow, onPresetSelect, showPresetCreateForm);
-    } else {
-      presetsSection.classList.add('hidden');
-      presetsRow.innerHTML = '';
-      activePresetId = null;
-    }
+    presetsSection.classList.remove('hidden');
+    renderPresetsRow(presets, activePresetId, presetsRow, onPresetSelect, showPresetCreateForm);
   }
 
   function onPresetSelect(preset) {
