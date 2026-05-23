@@ -96,8 +96,8 @@
           </div>
           <div id="settings-workspace-list" class="workspace-list"></div>
         </div>
-        <div class="divider"></div>
         <!-- 解绑确认区域 -->
+        <div class="divider dashed hidden" id="unbind-divider"></div>
         <div id="unbind-confirm" class="unbind-confirm hidden">
           <p class="unbind-confirm-text" id="unbind-confirm-text"></p>
           <div class="unbind-confirm-actions">
@@ -105,10 +105,26 @@
             <button id="unbind-confirm-ok" class="unbind-ok-btn">确认解绑</button>
           </div>
         </div>
+        <div class="divider"></div>
+        <div class="shortcut-section">
+          <div class="shortcut-title-row">
+            <h3>快捷键</h3>
+            <span class="shortcut-hint-text" id="shortcut-hint">右键菜单或快捷键可直接保存，无需打开面板</span>
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-spacer"></span>
+            <span class="shortcut-center">
+              <span class="shortcut-key" id="shortcut-key">Ctrl+Shift+S</span>
+              <span class="shortcut-key-default">默认 <span id="shortcut-key-default">Ctrl+Shift+S</span></span>
+            </span>
+            <button id="shortcut-config-btn" class="shortcut-config-btn">修改</button>
+          </div>
+        </div>
         <div id="settings-status" class="status hidden">
           <p class="status-text"></p>
         </div>
-        <div class="settings-footer">v0.3.6</div>
+        <div class="divider"></div>
+        <div class="settings-footer">v0.3.8</div>
       </div>
     </div>
   </div>

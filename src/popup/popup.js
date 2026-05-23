@@ -55,6 +55,9 @@ document.addEventListener('DOMContentLoaded', () => {
       refreshWorkspaceUI();
       loadPageData();
     }
+    if (changes[STORE.SAVE_STATE]) {
+      updateSaveProgress(changes[STORE.SAVE_STATE].newValue);
+    }
   });
 
   // 打开时检查登录状态
@@ -113,8 +116,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  var unbindDivider = document.getElementById('unbind-divider');
+
   function hideUnbindConfirm() {
     unbindConfirm.classList.add('hidden');
+    unbindDivider.classList.add('hidden');
   }
 
   function showUnbindConfirm(botId) {
@@ -125,7 +131,8 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
       }
     }
-    unbindConfirmText.textContent = '确认解绑「' + wsName + '」吗？';
+    unbindConfirmText.innerHTML = '确认解绑「<span style="color:#ef4444;font-weight:600">' + escapeHtml(wsName) + '</span>」吗？';
+    unbindDivider.classList.remove('hidden');
     unbindConfirm.classList.remove('hidden');
     pendingUnbindBotId = botId;
   }
@@ -183,6 +190,43 @@ document.addEventListener('DOMContentLoaded', () => {
       pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
       loadPageData();
     });
+  });
+
+  // 快捷键提示（从 Chrome API 读取实际快捷键）
+  var shortcutKeyEl = document.getElementById('shortcut-key');
+  var shortcutKeyDefaultEl = document.getElementById('shortcut-key-default');
+  var shortcutHintEl = document.getElementById('shortcut-hint');
+  var shortcutConfigBtn = document.getElementById('shortcut-config-btn');
+
+  var SHORTCUT_DEFAULT = 'Ctrl+Shift+S';
+
+  function updateShortcutDisplay() {
+    shortcutKeyDefaultEl.textContent = SHORTCUT_DEFAULT;
+
+    if (chrome.commands && chrome.commands.getAll) {
+      chrome.commands.getAll(function(commands) {
+        for (var i = 0; i < commands.length; i++) {
+          if (commands[i].name === 'save-to-notion') {
+            var shortcut = commands[i].shortcut || '';
+            if (shortcut) {
+              shortcutKeyEl.textContent = shortcut;
+              shortcutKeyEl.classList.remove('unset');
+              shortcutHintEl.textContent = '右键菜单或快捷键可直接保存，无需打开面板';
+            } else {
+              shortcutKeyEl.textContent = '未设置';
+              shortcutKeyEl.classList.add('unset');
+              shortcutHintEl.textContent = '请重新设置快捷键';
+            }
+            return;
+          }
+        }
+      });
+    }
+  }
+  updateShortcutDisplay();
+
+  shortcutConfigBtn.addEventListener('click', function() {
+    chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
   });
 
   // 两个 + 按钮都绑定添加空间
@@ -561,6 +605,29 @@ document.addEventListener('DOMContentLoaded', () => {
   function showStatus(message, type) {
     statusEl.className = 'status ' + (type === 'loading' ? 'loading-status' : type);
     statusEl.querySelector('.status-text').textContent = message;
+  }
+
+  function updateSaveProgress(state) {
+    if (!state || !saveBtn.disabled) return;
+    if (state.status !== 'in_progress') return;
+
+    var msg = '';
+    if (state.stage === 'creating_page') {
+      msg = '正在创建 Notion 页面...';
+    } else if (state.stage === 'appending_blocks') {
+      if (state.retryCurrent > 0) {
+        msg = '网络不稳定，正在重试 (' + state.retryCurrent + '/3)...';
+      } else if (state.blocksTotal > 0) {
+        var pct = Math.round(state.blocksDone / state.blocksTotal * 100);
+        msg = '正在保存 ' + state.blocksDone + '/' + state.blocksTotal + ' blocks (' + pct + '%)...';
+      } else {
+        msg = '正在同步到 Notion...';
+      }
+    }
+    if (msg) {
+      statusEl.className = 'status loading-status';
+      statusEl.querySelector('.status-text').textContent = msg;
+    }
   }
 
   function showSettingsStatus(message, type) {

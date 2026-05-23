@@ -395,6 +395,12 @@ header h1 {
   background: var(--loading-bg);
   border: 1px solid var(--loading-border);
   color: var(--meta-color);
+  animation: ns-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ns-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .hidden {
@@ -503,11 +509,12 @@ header h1 {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  padding-right: 10px;
 }
 
-/* 设置面板滚动条 — 细滚动条 */
+/* 设置面板滚动条 — 超细，hover 才可见 */
 .settings-body::-webkit-scrollbar {
-  width: 4px;
+  width: 2px;
 }
 
 .settings-body::-webkit-scrollbar-track {
@@ -515,8 +522,12 @@ header h1 {
 }
 
 .settings-body::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.3);
-  border-radius: 2px;
+  background: transparent;
+  border-radius: 1px;
+}
+
+.settings-body:hover::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
 }
 
 .settings-body::-webkit-scrollbar-thumb:hover {
@@ -627,7 +638,7 @@ header h1 {
 
 /* 解绑确认区域 */
 .unbind-confirm {
-  margin-top: 12px;
+  margin-top: 0;
   padding: 12px;
   background: var(--content-bg);
   border: 1px solid rgba(239, 68, 68, 0.3);
@@ -697,6 +708,99 @@ header h1 {
   margin-bottom: 8px;
 }
 
+.shortcut-section {
+  margin-bottom: 2px;
+}
+
+.shortcut-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.shortcut-title-row h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.shortcut-hint-text {
+  font-size: 11px;
+  color: var(--meta-color);
+  white-space: nowrap;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+}
+
+.shortcut-spacer {
+  width: 44px;
+  flex-shrink: 0;
+}
+
+.shortcut-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.shortcut-key {
+  display: inline-flex;
+  align-items: center;
+  background: var(--input-bg);
+  border: 1px solid var(--active-border);
+  border-radius: var(--input-radius);
+  padding: 4px 10px;
+  font-size: 13px;
+  font-family: monospace;
+  color: var(--accent-color);
+  font-weight: 600;
+  height: 26px;
+  box-sizing: border-box;
+}
+
+.shortcut-key.unset {
+  border-color: var(--error-border);
+  color: var(--error-color);
+}
+
+.shortcut-key-default {
+  font-size: 11px;
+  color: var(--meta-color);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.shortcut-key-default span {
+  font-family: monospace;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  color: var(--secondary-text);
+}
+
+.shortcut-config-btn {
+  background: var(--secondary-btn-bg);
+  border: 1px solid var(--input-border);
+  color: var(--secondary-text);
+  padding: 4px 8px;
+  border-radius: var(--input-radius);
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
 .settings-empty {
   text-align: center;
   padding: 24px 16px;
@@ -728,8 +832,12 @@ header h1 {
   margin: 6px 0;
 }
 
+.divider.dashed {
+  border-top-style: dashed;
+}
+
 .settings-footer {
-  text-align: center;
+  text-align: right;
   font-size: 11px;
   color: var(--meta-color);
   padding: 6px 0 2px 0;

@@ -1,14 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Notion Saver",
-  "version": "0.3.6",
+  "version": "0.3.8",
   "description": "一键保存网页内容到 Notion",
   "permissions": [
     "activeTab",
     "storage",
     "scripting",
-    "notifications"
+    "notifications",
+    "contextMenus"
   ],
+  "commands": {
+    "save-to-notion": {
+      "suggested_key": { "default": "Ctrl+Shift+S", "mac": "MacCtrl+Shift+S" },
+      "description": "保存当前页面到 Notion"
+    }
+  },
   "host_permissions": [
     "https://api.notion.com/*",
     "<all_urls>"

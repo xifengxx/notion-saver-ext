@@ -11,7 +11,20 @@ var STORE = {
   CURRENT_BOT: 'notion_current_workspace_bot_id',
   TOKEN_FAILED: 'notion_token_refresh_failed',
   OAUTH_SESSION: 'oauth_session_id',
+  SAVE_STATE: 'notion_save_state',
+  RECENT_PAGES_PREFIX: 'recent_pages_',
+  NOTIF_URL_PREFIX: 'notif_url_',
 };
+
+// 安装/更新时创建右键菜单
+chrome.runtime.onInstalled.addListener(function() {
+  chrome.contextMenus.create({
+    id: 'save-to-notion',
+    title: '保存到 Notion',
+    contexts: ['page'],
+    documentUrlPatterns: ['http://*/*', 'https://*/*'],
+  });
+});
 
 // ============================================================
 // OAuth 登录轮询（在 background 运行，不受 popup 关闭影响）
@@ -193,7 +206,7 @@ function getValidToken() {
             try {
               chrome.notifications.create('token-refresh-failed', {
                 type: 'basic',
-                iconUrl: 'public/icons/icon-48.png',
+                iconUrl: chrome.runtime.getURL('public/icons/icon-48.png'),
                 title: 'Notion Saver — 认证已过期',
                 message: '请点击扩展图标重新登录',
               });
@@ -229,8 +242,8 @@ function refreshToken(refreshTokenValue) {
 // Notion API 核心保存流程
 // ============================================================
 function saveToNotion(data, parentPageId, workspaceBotId) {
-  // 标记保存进行中，用于检测 SW 终止导致的中断
-  chrome.storage.local.set({ notion_save_state: { status: 'in_progress', startedAt: Date.now() } });
+  // 标记保存进行中，用于检测 SW 终止导致的中断 + 进度跟踪
+  chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'creating_page', blocksTotal: 0, blocksDone: 0, retryCurrent: 0 } });
 
   return getValidToken().then(function(token) {
     if (!token) {
@@ -247,7 +260,7 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
       });
 
       if (blocks.length === 0) {
-        chrome.storage.local.set({ notion_save_state: { status: 'completed', at: Date.now() } });
+        chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
         return {
           success: true,
           pageUrl: page.url,
@@ -261,8 +274,12 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
         chunks.push(blocks.slice(i, i + BLOCK_LIMIT));
       }
 
-      return appendAllBlocks(token, pageId, chunks, 0).then(function() {
-        chrome.storage.local.set({ notion_save_state: { status: 'completed', at: Date.now() } });
+      // 写入总 blocks 数
+      chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'appending_blocks', blocksTotal: blocks.length, blocksDone: 0 } });
+      showBadge('0/' + chunks.length, '#888888');
+
+      return appendAllBlocks(token, pageId, chunks, 0, blocks.length).then(function() {
+        chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
         return {
           success: true,
           pageUrl: page.url,
@@ -273,11 +290,11 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
     });
   }).catch(function(err) {
     console.error('[Notion Saver] Save failed:', err);
-    chrome.storage.local.set({ notion_save_state: { status: 'failed', error: err.message || '保存失败', at: Date.now() } });
+    chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'failed', error: err.message || '保存失败', at: Date.now() } });
     try {
       chrome.notifications.create('save-failed', {
         type: 'basic',
-        iconUrl: 'public/icons/icon-48.png',
+        iconUrl: chrome.runtime.getURL('public/icons/icon-48.png'),
         title: 'Notion Saver — 保存失败',
         message: err.message || '保存过程中断，请重试',
       });
@@ -286,14 +303,17 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
   });
 }
 
-function appendAllBlocks(token, pageId, chunks, index) {
+function appendAllBlocks(token, pageId, chunks, index, totalBlocks) {
   if (index >= chunks.length) {
     return Promise.resolve();
   }
   return appendBlocksWithRetry(token, pageId, chunks[index], 3).then(function() {
+    var done = Math.min((index + 1) * BLOCK_LIMIT, totalBlocks);
+    chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', stage: 'appending_blocks', blocksTotal: totalBlocks, blocksDone: done, retryCurrent: 0 } });
+    showBadge((index + 1) + '/' + chunks.length, '#888888');
     if (index < chunks.length - 1) {
       return delay(RATE_LIMIT_DELAY).then(function() {
-        return appendAllBlocks(token, pageId, chunks, index + 1);
+        return appendAllBlocks(token, pageId, chunks, index + 1, totalBlocks);
       });
     }
     return Promise.resolve();
@@ -303,7 +323,10 @@ function appendAllBlocks(token, pageId, chunks, index) {
 function appendBlocksWithRetry(token, pageId, blocks, maxRetries) {
   return appendBlocks(token, pageId, blocks).catch(function(err) {
     if (maxRetries > 0 && err.message && err.message.indexOf('fetch') >= 0) {
-      console.log('[Notion Saver] Append blocks failed, retrying... (' + (3 - maxRetries + 1) + '/3)');
+      var retryNum = 3 - maxRetries + 1;
+      console.log('[Notion Saver] Append blocks failed, retrying... (' + retryNum + '/3)');
+      chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', stage: 'appending_blocks', retryCurrent: retryNum } });
+      showBadge('R' + retryNum, '#e67e22');
       return delay(2000).then(function() {
         return appendBlocksWithRetry(token, pageId, blocks, maxRetries - 1);
       });
@@ -576,3 +599,195 @@ function notionFetch(path, token, options) {
 function delay(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
 }
+
+// ============================================================
+// 右键菜单 + 快捷键保存（v0.3.7）
+// ============================================================
+
+function recentPagesKey(botId) {
+  return STORE.RECENT_PAGES_PREFIX + (botId || 'default');
+}
+
+function extractFromTab(tab) {
+  return new Promise(function(resolve) {
+    chrome.tabs.sendMessage(tab.id, { action: 'extract' }, function(response) {
+      if (chrome.runtime.lastError) {
+        // Content script 未连接（扩展刚更新、页面未刷新），尝试注入
+        var manifest = chrome.runtime.getManifest();
+        var csFiles = (manifest.content_scripts && manifest.content_scripts[0] && manifest.content_scripts[0].js) ? manifest.content_scripts[0].js : [];
+        if (csFiles.length === 0) {
+          resolve({ error: '无法连接到页面，请刷新页面后重试', title: '' });
+          return;
+        }
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: csFiles,
+        }, function() {
+          if (chrome.runtime.lastError) {
+            resolve({ error: '无法连接到页面，请刷新页面后重试', title: '' });
+            return;
+          }
+          chrome.tabs.sendMessage(tab.id, { action: 'extract' }, function(retryResponse) {
+            if (chrome.runtime.lastError) {
+              resolve({ error: '无法连接到页面，请刷新页面后重试', title: '' });
+              return;
+            }
+            resolve(retryResponse || { error: '提取失败', title: '' });
+          });
+        });
+        return;
+      }
+      resolve(response || { error: '提取失败', title: '' });
+    });
+  });
+}
+
+function showSaveNotification(title, message, pageUrl) {
+  var notifId = 'save-' + Date.now();
+  var options = {
+    type: 'basic',
+    iconUrl: chrome.runtime.getURL('public/icons/icon-48.png'),
+    title: 'Notion Saver — ' + title,
+    message: message,
+  };
+  chrome.notifications.create(notifId, options, function(createdId) {
+    if (chrome.runtime.lastError) {
+      console.error('[Notion Saver] Notification failed:', chrome.runtime.lastError.message);
+    }
+  });
+  if (pageUrl) {
+    var kv = {};
+    kv[STORE.NOTIF_URL_PREFIX + notifId] = pageUrl;
+    chrome.storage.local.set(kv);
+  }
+}
+
+// 扩展图标 badge 降级提示（系统通知不可用时仍能看到反馈）
+function showBadge(text, bgColor) {
+  chrome.action.setBadgeBackgroundColor({ color: bgColor });
+  chrome.action.setBadgeText({ text: text });
+}
+
+function clearBadgeAfter(ms) {
+  setTimeout(function() {
+    chrome.action.setBadgeText({ text: '' });
+  }, ms);
+}
+
+// 在页面上弹出 toast（比系统通知更可靠，macOS 不会屏蔽）
+function showPageToast(tabId, type, message, pageUrl) {
+  var bgColor = type === 'success' ? '#10b981' : '#ef4444';
+  var icon = type === 'success' ? '✓' : '✕';
+  chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    func: function(bg, ic, msg, url) {
+      var styleEl = document.createElement('style');
+      styleEl.textContent = '@keyframes ns-fade-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}';
+      document.head.appendChild(styleEl);
+      var toast = document.createElement('div');
+      toast.id = 'notion-saver-toast';
+      toast.style.cssText = 'position:fixed;top:16px;right:16px;z-index:2147483647;background:' + bg + ';color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.25);display:flex;align-items:center;gap:6px;animation:ns-fade-in 0.3s ease;opacity:1;transition:opacity 0.5s ease';
+      var inner = ic + ' ' + msg;
+      if (url) {
+        inner += ' <a href="' + url + '" target="_blank" style="color:#fff;text-decoration:underline;margin-left:4px">在 Notion 中打开</a>';
+      }
+      toast.innerHTML = inner;
+      document.body.appendChild(toast);
+      setTimeout(function() {
+        toast.style.opacity = '0';
+        setTimeout(function() {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 500);
+      }, 5000);
+    },
+    args: [bgColor, icon, message, pageUrl],
+  }).catch(function(err) {
+    console.error('[Notion Saver] Page toast failed:', err && err.message ? err.message : err);
+  });
+}
+
+function saveCurrentPage(tab) {
+  showBadge('...', '#888888');
+  extractFromTab(tab).then(function(data) {
+    if (!data || data.error) {
+      showBadge('!', '#ef4444');
+      clearBadgeAfter(5000);
+      showPageToast(tab.id, 'error', data ? data.error : '无法获取页面内容');
+      showSaveNotification('提取失败', data ? data.error : '无法获取页面内容');
+      return Promise.reject(new Error('extraction failed'));
+    }
+
+    return new Promise(function(resolve) {
+      chrome.storage.local.get([STORE.WORKSPACES, STORE.CURRENT_BOT], function(result) {
+        var workspaces = result[STORE.WORKSPACES] || [];
+        var botId = result[STORE.CURRENT_BOT];
+
+        if (!botId || workspaces.length === 0) {
+          showBadge('!', '#ef4444');
+          clearBadgeAfter(5000);
+          showPageToast(tab.id, 'error', '请先点击扩展图标登录 Notion');
+          showSaveNotification('未登录', '请先点击扩展图标登录 Notion');
+          resolve(null);
+          return;
+        }
+
+        var rpKey = recentPagesKey(botId);
+        chrome.storage.local.get([rpKey], function(rpResult) {
+          var recentPages = rpResult[rpKey] || [];
+          var parentId = recentPages.length > 0 ? recentPages[0].id : null;
+          resolve({ botId: botId, parentId: parentId, extractedData: data });
+        });
+      });
+    });
+  }).then(function(params) {
+    if (!params) return;
+    return saveToNotion(params.extractedData, params.parentId, params.botId);
+  }).then(function(result) {
+    if (!result) return;
+    if (result.success) {
+      showBadge('OK', '#10b981');
+      clearBadgeAfter(5000);
+      showPageToast(tab.id, 'success', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
+      showSaveNotification('保存成功', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
+    } else {
+      showBadge('!', '#ef4444');
+      clearBadgeAfter(5000);
+      showPageToast(tab.id, 'error', result.error || '保存失败');
+      showSaveNotification('保存失败', result.error || '未知错误');
+    }
+  }).catch(function(err) {
+    showBadge('!', '#ef4444');
+    clearBadgeAfter(5000);
+    console.error('[Notion Saver] saveCurrentPage error:', err && err.message ? err.message : err);
+  });
+}
+
+// 右键菜单点击
+chrome.contextMenus.onClicked.addListener(function(info, tab) {
+  if (info.menuItemId === 'save-to-notion' && tab && tab.id) {
+    saveCurrentPage(tab);
+  }
+});
+
+// 快捷键
+chrome.commands.onCommand.addListener(function(command) {
+  if (command === 'save-to-notion') {
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (tabs && tabs[0] && tabs[0].id) {
+        saveCurrentPage(tabs[0]);
+      }
+    });
+  }
+});
+
+// 通知点击 → 打开 Notion 页面
+chrome.notifications.onClicked.addListener(function(notifId) {
+  var key = STORE.NOTIF_URL_PREFIX + notifId;
+  chrome.storage.local.get([key], function(result) {
+    if (result[key]) {
+      chrome.tabs.create({ url: result[key] });
+      chrome.storage.local.remove(key);
+    }
+  });
+  chrome.notifications.clear(notifId);
+});
