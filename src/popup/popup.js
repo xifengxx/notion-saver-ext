@@ -73,7 +73,9 @@ document.addEventListener('DOMContentLoaded', () => {
       loadSaveHistory();
     }
     if (changes[STORE.SAVE_STATE]) {
-      updateSaveProgress(changes[STORE.SAVE_STATE].newValue);
+      var newState = changes[STORE.SAVE_STATE].newValue;
+      updateSaveProgress(newState);
+      checkSaveState(newState, true);
     }
   });
 
@@ -307,13 +309,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function checkSaveState(state) {
+  function checkSaveState(state, isLive) {
     if (!state) return;
     if (state.status === 'in_progress' && Date.now() - state.startedAt > 30000) {
       showStatus('上次保存可能因后台中断未完成，请检查 Notion 并重试', 'error');
       chrome.storage.local.remove(STORE.SAVE_STATE);
     } else if (state.status === 'failed') {
-      showStatus('上次保存失败: ' + (state.error || '未知错误'), 'error');
+      // 仅实时事件（isLive=true）显示错误；初始化时发现旧失败直接清除
+      if (isLive) {
+        showStatus('保存失败: ' + (state.error || '未知错误'), 'error');
+      }
       chrome.storage.local.remove(STORE.SAVE_STATE);
     }
   }
@@ -448,6 +453,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
 
   function loadPageData() {
+    // 清除上一次保存的状态提示（成功/失败/中断），开始新的页面上下文
+    statusEl.className = 'status hidden';
     pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
     chrome.runtime.sendMessage({ action: 'fetch_pages', query: '' }, (result) => {
       if (chrome.runtime.lastError) {
@@ -662,6 +669,12 @@ document.addEventListener('DOMContentLoaded', () => {
     var msg = '';
     if (state.stage === 'creating_page') {
       msg = '正在创建 Notion 页面...';
+    } else if (state.stage === 'uploading_images') {
+      if (state.imagesTotal > 0) {
+        msg = '正在上传图片 ' + state.imagesDone + '/' + state.imagesTotal + '...';
+      } else {
+        msg = '正在上传图片...';
+      }
     } else if (state.stage === 'appending_blocks') {
       if (state.retryCurrent > 0) {
         msg = '网络不稳定，正在重试 (' + state.retryCurrent + '/3)...';

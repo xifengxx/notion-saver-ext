@@ -5,6 +5,8 @@ var NOTION_API = 'https://api.notion.com';
 var BACKEND_URL = 'https://notion-saver-ext-production.up.railway.app';
 var RATE_LIMIT_DELAY = 400;
 var BLOCK_LIMIT = 100;
+var FILE_UPLOAD_RATE_LIMIT_DELAY = 400;
+var MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB Notion 免费空间限制
 
 var STORE = {
   WORKSPACES: 'notion_workspaces',
@@ -262,6 +264,7 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
 
       if (blocks.length === 0) {
         chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
+        chrome.action.setBadgeText({ text: '' });
         return {
           success: true,
           pageUrl: page.url,
@@ -270,28 +273,32 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
         };
       }
 
-      var chunks = [];
-      for (var i = 0; i < blocks.length; i += BLOCK_LIMIT) {
-        chunks.push(blocks.slice(i, i + BLOCK_LIMIT));
-      }
+      // 上传图片到 Notion（v0.4.0 File Upload）
+      return uploadImages(token, blocks).then(function(transformedBlocks) {
+        var chunks = [];
+        for (var i = 0; i < transformedBlocks.length; i += BLOCK_LIMIT) {
+          chunks.push(transformedBlocks.slice(i, i + BLOCK_LIMIT));
+        }
 
-      // 写入总 blocks 数
-      chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'appending_blocks', blocksTotal: blocks.length, blocksDone: 0 } });
-      showBadge('0/' + chunks.length, '#888888');
+        chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'appending_blocks', blocksTotal: transformedBlocks.length, blocksDone: 0 } });
+        showBadge('0/' + chunks.length, '#888888');
 
-      return appendAllBlocks(token, pageId, chunks, 0, blocks.length).then(function() {
-        chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
-        return {
-          success: true,
-          pageUrl: page.url,
-          pageId: pageId,
-          blocksCount: blocks.length,
-        };
+        return appendAllBlocks(token, pageId, chunks, 0, transformedBlocks.length).then(function() {
+          chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
+          chrome.action.setBadgeText({ text: '' });
+          return {
+            success: true,
+            pageUrl: page.url,
+            pageId: pageId,
+            blocksCount: transformedBlocks.length,
+          };
+        });
       });
     });
   }).catch(function(err) {
     console.error('[NotionSnap] Save failed:', err);
     chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'failed', error: err.message || '保存失败', at: Date.now() } });
+    chrome.action.setBadgeText({ text: '' });
     try {
       chrome.notifications.create('save-failed', {
         type: 'basic',
@@ -431,6 +438,180 @@ function appendBlocks(token, pageId, blocks) {
   return notionFetch(url, token, {
     method: 'PATCH',
     body: JSON.stringify({ children: blocks }),
+  });
+}
+
+// ============================================================
+// File Upload 图片上传 — Notion API（v0.4.0）
+// ============================================================
+function requestFileUpload(token, filename, contentType, contentLength) {
+  return fetch(NOTION_API + '/v1/file_uploads', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Notion-Version': '2022-06-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      filename: filename,
+      content_type: contentType,
+      content_length: contentLength,
+    }),
+  }).then(function(response) {
+    if (!response.ok) {
+      return response.json().catch(function() { return {}; }).then(function(body) {
+        throw new Error('File upload request failed: ' + (body.message || 'HTTP ' + response.status));
+      });
+    }
+    return response.json();
+  }).then(function(data) {
+    return { id: data.id, upload_url: data.upload_url, status: data.status };
+  });
+}
+
+function uploadBinaryToSignedUrl(uploadUrl, blob, contentType) {
+  return fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: blob,
+  }).then(function(response) {
+    if (!response.ok) {
+      throw new Error('S3 upload failed: HTTP ' + response.status);
+    }
+  });
+}
+
+function downloadAllImages(urls) {
+  var downloads = urls.map(function(url) {
+    return fetch(url).then(function(response) {
+      if (!response.ok) {
+        return { url: url, blob: null, error: 'http_' + response.status };
+      }
+      return response.blob().then(function(blob) {
+        if (blob.size > MAX_IMAGE_SIZE_BYTES || blob.size === 0) {
+          return { url: url, blob: null, error: 'invalid_size' };
+        }
+        var ct = response.headers.get('Content-Type') || '';
+        if (!ct || ct.indexOf('image/') !== 0) {
+          ct = getContentTypeFromUrl(url);
+        }
+        return { url: url, blob: blob, contentType: ct };
+      });
+    }).catch(function(err) {
+      return { url: url, blob: null, error: 'fetch_failed' };
+    });
+  });
+  return Promise.all(downloads).then(function(results) {
+    var map = {};
+    for (var i = 0; i < results.length; i++) {
+      map[results[i].url] = results[i];
+    }
+    return map;
+  });
+}
+
+function uploadImageBatch(token, urls, index, blobMap, uploadMap) {
+  if (index >= urls.length) {
+    return Promise.resolve(uploadMap);
+  }
+
+  var url = urls[index];
+  var blobInfo = blobMap[url];
+  var total = urls.length;
+
+  function nextImage(result) {
+    uploadMap[url] = result;
+    var done = index + 1;
+    chrome.storage.local.set({
+      [STORE.SAVE_STATE]: {
+        status: 'in_progress',
+        stage: 'uploading_images',
+        imagesTotal: total,
+        imagesDone: done,
+      }
+    });
+    showBadge(done + '/' + total + ' img', '#888888');
+
+    if (index + 1 < urls.length) {
+      return delay(FILE_UPLOAD_RATE_LIMIT_DELAY).then(function() {
+        return uploadImageBatch(token, urls, index + 1, blobMap, uploadMap);
+      });
+    }
+    return uploadMap;
+  }
+
+  if (!blobInfo || !blobInfo.blob) {
+    console.log('[NotionSnap] Image download failed for ' + url +
+      ': ' + (blobInfo ? blobInfo.error : 'no_blob'));
+    return nextImage({ success: false, reason: blobInfo ? blobInfo.error : 'no_blob' });
+  }
+
+  var filename = getFilenameFromUrl(url, blobInfo.contentType);
+
+  return requestFileUpload(token, filename, blobInfo.contentType, blobInfo.blob.size)
+    .then(function(uploadInfo) {
+      return uploadBinaryToSignedUrl(uploadInfo.upload_url, blobInfo.blob, blobInfo.contentType)
+        .then(function() {
+          return nextImage({ success: true, id: uploadInfo.id });
+        });
+    })
+    .catch(function(err) {
+      console.log('[NotionSnap] Image upload skipped for ' + url +
+        ': ' + (err && err.message ? err.message : ''));
+      return nextImage({ success: false, reason: 'upload_failed' });
+    });
+}
+
+function uploadImages(token, blocks) {
+  var imageUrls = [];
+  var blockImageInfo = [];
+
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    if (b.type === 'image' && b.image && b.image.type === 'external') {
+      var url = b.image.external.url;
+      var caption = (b.image.caption && b.image.caption.length > 0) ? b.image.caption : [];
+      if (imageUrls.indexOf(url) === -1) {
+        imageUrls.push(url);
+      }
+      blockImageInfo.push({ blockIndex: i, url: url, caption: caption });
+    }
+  }
+
+  if (imageUrls.length === 0) {
+    return Promise.resolve(blocks);
+  }
+
+  chrome.storage.local.set({
+    [STORE.SAVE_STATE]: {
+      status: 'in_progress',
+      stage: 'uploading_images',
+      imagesTotal: imageUrls.length,
+      imagesDone: 0,
+    }
+  });
+  showBadge('0/' + imageUrls.length + ' img', '#888888');
+
+  // 并行下载所有图片，再串行上传到 Notion
+  return downloadAllImages(imageUrls).then(function(blobMap) {
+    return uploadImageBatch(token, imageUrls, 0, blobMap, {}).then(function(uploadMap) {
+      for (var j = 0; j < blockImageInfo.length; j++) {
+        var info = blockImageInfo[j];
+        var uploadResult = uploadMap[info.url];
+        if (uploadResult && uploadResult.success) {
+          blocks[info.blockIndex] = {
+            object: 'block',
+            type: 'image',
+            image: {
+              type: 'file_upload',
+              file_upload: { id: uploadResult.id },
+              caption: info.caption,
+            },
+          };
+        }
+      }
+      return blocks;
+    });
   });
 }
 
@@ -599,6 +780,36 @@ function notionFetch(path, token, options) {
 // ============================================================
 function delay(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+// ============================================================
+// File Upload 图片上传工具函数（v0.4.0）
+// ============================================================
+function getContentTypeFromUrl(url) {
+  var lower = url.toLowerCase();
+  if (lower.indexOf('.png') >= 0) return 'image/png';
+  if (lower.indexOf('.jpg') >= 0 || lower.indexOf('.jpeg') >= 0) return 'image/jpeg';
+  if (lower.indexOf('.gif') >= 0) return 'image/gif';
+  if (lower.indexOf('.webp') >= 0) return 'image/webp';
+  if (lower.indexOf('.svg') >= 0) return 'image/svg+xml';
+  if (lower.indexOf('.bmp') >= 0) return 'image/bmp';
+  if (lower.indexOf('.ico') >= 0) return 'image/x-icon';
+  return 'image/png';
+}
+
+function getFilenameFromUrl(url, contentType) {
+  try {
+    var urlObj = new URL(url);
+    var parts = urlObj.pathname.split('/');
+    var lastPart = parts[parts.length - 1];
+    if (lastPart && lastPart.indexOf('.') >= 0 && lastPart.length > 1) {
+      return lastPart.split('?')[0];
+    }
+  } catch (e) { /* fall through */ }
+  var ext = contentType.split('/')[1] || 'png';
+  if (ext === 'svg+xml') ext = 'svg';
+  if (ext === 'x-icon') ext = 'ico';
+  return 'image.' + ext;
 }
 
 // ============================================================
