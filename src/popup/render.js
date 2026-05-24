@@ -81,6 +81,21 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
   var html = '';
   recent = recent || [];
 
+  function buildCombinedItem(item) {
+    var tag = '';
+    if (item.isDb) {
+      tag = '<span class="page-type-tag">数据库</span>';
+    } else if (item.parentType === 'workspace') {
+      // 顶层页面不加标签
+    } else if (item.parentType === 'page_id' || item.parentType === 'block_id') {
+      tag = '<span class="page-type-tag page-tag-sub">子页面</span>';
+    }
+    return '<div class="page-list-item" data-id="' + item.id + '"' + (item.isDb ? ' data-is-db="1"' : '') + '>' +
+      '<span class="page-icon"></span>' +
+      '<span class="page-title">' + escapeHtml(item.title) + '</span>' +
+      tag + '</div>';
+  }
+
   // === 搜索模式：数据库 + 页面混合平铺，按层级排序 ===
   // 页面层级权重：workspace(0) > page_id(1) > 其他(2) > database_id(3)
   if (isSearch) {
@@ -93,7 +108,7 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
 
     // 数据库（带类型标签）
     for (var i = 0; i < databases.length; i++) {
-      html += '<div class="page-list-item page-list-item-db" data-id="' + databases[i].id + '">' +
+      html += '<div class="page-list-item page-list-item-db" data-id="' + databases[i].id + '" data-is-db="1">' +
         '<span class="page-icon"></span>' +
         '<span class="page-title">' + escapeHtml(databases[i].title) + '</span>' +
         '<span class="page-type-tag">数据库</span></div>';
@@ -121,100 +136,90 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
     return;
   }
 
-  // === 非搜索模式：分类展示 ===
+  // === 非搜索模式：两类展示 ===
+  // 第一类：最近保存（最多 5 个）
+  // 第二类：数据库 + 页面合并（10 个默认，可展开到 20）
+
+  // 收集最近保存的 id 用于去重
+  var recentIds = {};
+  for (var i = 0; i < recent.length; i++) {
+    recentIds[recent[i].id] = true;
+  }
 
   // 最近保存
   if (recent.length > 0) {
     html += '<div class="page-list-section"><div class="page-list-label">最近保存</div>';
-    for (var i = 0; i < recent.length; i++) {
-      html += '<div class="page-list-item page-list-item-recent" data-id="' + recent[i].id + '">' +
+    for (var i = 0; i < recent.length && i < 5; i++) {
+      var rIsDb = recent[i].type === 'database';
+      html += '<div class="page-list-item page-list-item-recent" data-id="' + recent[i].id + '"' + (rIsDb ? ' data-is-db="1"' : '') + '>' +
         '<span class="page-icon"></span>' +
         '<span class="page-title">' + escapeHtml(recent[i].title) + '</span></div>';
     }
     html += '</div>';
   }
 
-  // 数据库（最多显示 12 个，其余通过搜索查找）
-  if (databases.length > 0) {
-    var MAX_DB = 12;
-    html += '<div class="page-list-section"><div class="page-list-label">数据库</div>';
-    for (var i = 0; i < databases.length && i < MAX_DB; i++) {
-      html += '<div class="page-list-item" data-id="' + databases[i].id + '">' +
-        '<span class="page-icon"></span>' +
-        '<span class="page-title">' + escapeHtml(databases[i].title) + '</span></div>';
+  // 合并数据库和页面，排除已在最近保存中的
+  var combined = [];
+  // 页面按层级排序
+  var sortedPages = pages.slice().sort(function(a, b) {
+    return parentTypeWeight(a.parentType) - parentTypeWeight(b.parentType);
+  });
+  for (var i = 0; i < sortedPages.length; i++) {
+    if (!recentIds[sortedPages[i].id]) {
+      combined.push({ id: sortedPages[i].id, title: sortedPages[i].title, isDb: false, parentType: sortedPages[i].parentType });
     }
-    if (databases.length > MAX_DB) {
-      html += '<div class="page-list-more">还有 ' + (databases.length - MAX_DB) + ' 个数据库，请搜索查找</div>';
-    }
-    html += '</div>';
   }
-
-  // 按 parentType 拆分页面：workspace 顶层页面 vs 嵌套页面
-  var topPages = [];
-  var nestedPages = [];
-  for (var i = 0; i < pages.length; i++) {
-    if (pages[i].parentType === 'workspace') {
-      topPages.push(pages[i]);
-    } else {
-      nestedPages.push(pages[i]);
+  // 数据库排后面
+  for (var i = 0; i < databases.length; i++) {
+    if (!recentIds[databases[i].id]) {
+      combined.push({ id: databases[i].id, title: databases[i].title, isDb: true, parentType: null });
     }
   }
 
-  // 顶层页面（workspace 根目录下，最多显示 15 个）
-  if (topPages.length > 0) {
-    var MAX_TOP = 15;
-    html += '<div class="page-list-section"><div class="page-list-label">页面</div>';
-    for (var i = 0; i < topPages.length && i < MAX_TOP; i++) {
-      html += '<div class="page-list-item" data-id="' + topPages[i].id + '">' +
-        '<span class="page-icon"></span>' +
-        '<span class="page-title">' + escapeHtml(topPages[i].title) + '</span></div>';
+  if (combined.length > 0) {
+    var MAX_SHOW = 10;
+    var MAX_TOTAL = 20;
+    html += '<div class="page-list-section"><div class="page-list-label">所有页面</div>';
+
+    for (var i = 0; i < combined.length && i < MAX_SHOW; i++) {
+      html += buildCombinedItem(combined[i]);
     }
-    if (topPages.length > MAX_TOP) {
-      html += '<div class="page-list-more">还有 ' + (topPages.length - MAX_TOP) + ' 个页面，请搜索查找</div>';
+
+    if (combined.length > MAX_SHOW) {
+      var remaining = combined.length - MAX_SHOW;
+      html += '<div class="page-list-more-toggle" style="cursor:pointer;padding:2px 8px;font-size:10px;color:var(--placeholder-color)">还有 ' + remaining + ' 个 &#9662;</div>';
+      html += '<div class="page-list-more-items hidden">';
+      for (var i = MAX_SHOW; i < combined.length && i < MAX_TOTAL; i++) {
+        html += buildCombinedItem(combined[i]);
+      }
+      if (combined.length > MAX_TOTAL) {
+        html += '<div class="page-list-more">还有 ' + (combined.length - MAX_TOTAL) + ' 个，请搜索查找</div>';
+      }
+      html += '</div>';
     }
+
     html += '</div>';
   }
 
-  // 嵌套页面（数据库内条目或子页面，权重最低）
-  // 只有当存在更优先的结果时才默认折叠；仅嵌套结果时直接展开
-  var hasBetterResults = recent.length > 0 || databases.length > 0 || topPages.length > 0;
-  if (nestedPages.length > 0) {
-    if (hasBetterResults) {
-      html += '<div class="page-list-section"><div class="page-list-label">子页面</div>';
-      html += '<div class="page-list-nested-toggle" style="cursor:pointer;padding:2px 8px;font-size:10px;color:var(--placeholder-color)">' + nestedPages.length + ' 个结果 &#9662;</div>';
-      html += '<div class="page-list-nested hidden">';
-    } else {
-      html += '<div class="page-list-section"><div class="page-list-label">页面</div>';
-      html += '<div class="page-list-nested">';
-    }
-    for (var i = 0; i < nestedPages.length; i++) {
-      html += '<div class="page-list-item page-list-item-nested" data-id="' + nestedPages[i].id + '">' +
-        '<span class="page-icon"></span>' +
-        '<span class="page-title">' + escapeHtml(nestedPages[i].title) + '</span></div>';
-    }
-    html += '</div>';
-    html += '</div>';
-  }
-
-  if (recent.length === 0 && databases.length === 0 && topPages.length === 0 && nestedPages.length === 0) {
+  if (recent.length === 0 && combined.length === 0) {
     html = '<div class="page-list-empty">未找到匹配的页面或数据库</div>';
   }
 
   pageListEl.innerHTML = html;
 
-  // 嵌套页面展开/折叠
-  var toggleEl = pageListEl.querySelector('.page-list-nested-toggle');
-  if (toggleEl) {
-    toggleEl.addEventListener('click', function() {
-      var nested = pageListEl.querySelector('.page-list-nested');
-      if (nested) {
-        var isHidden = nested.classList.contains('hidden');
+  // 展开/折叠
+  var moreToggle = pageListEl.querySelector('.page-list-more-toggle');
+  if (moreToggle) {
+    moreToggle.addEventListener('click', function() {
+      var moreItems = pageListEl.querySelector('.page-list-more-items');
+      if (moreItems) {
+        var isHidden = moreItems.classList.contains('hidden');
         if (isHidden) {
-          nested.classList.remove('hidden');
-          toggleEl.innerHTML = '隐藏子页面 &#9652;';
+          moreItems.classList.remove('hidden');
+          moreToggle.innerHTML = '收起 &#9652;';
         } else {
-          nested.classList.add('hidden');
-          toggleEl.innerHTML = '显示 ' + nestedPages.length + ' 个 &#9662;';
+          moreItems.classList.add('hidden');
+          moreToggle.innerHTML = '还有 ' + remaining + ' 个 &#9662;';
         }
       }
     });
@@ -228,7 +233,8 @@ function bindPageItemClicks(pageListEl, onSelect) {
     item.addEventListener('click', function() {
       var id = this.getAttribute('data-id');
       var title = this.querySelector('.page-title').textContent;
-      if (onSelect) onSelect(id, title);
+      var isDb = this.getAttribute('data-is-db') === '1';
+      if (onSelect) onSelect(id, title, isDb);
     });
   });
 }

@@ -1,5 +1,5 @@
 // Popup UI 逻辑 — OAuth 多空间版本
-import { STORE, recentPagesKey, escapeHtml, presetsKey, saveHistoryKey } from './lib.js';
+import { STORE, recentPagesKey, escapeHtml, presetsKey, saveHistoryKey, pageCacheKey } from './lib.js';
 import { renderPageList, renderSettingsWorkspaceList, renderPresetsRow, renderHistoryList, renderHistoryEmpty, getPillColor } from './render.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   var mainContent = document.getElementById('main-content');
   var loginBtn = document.getElementById('login-btn');
   var contentPreview = document.getElementById('content-preview');
+  var metadataExtra = document.getElementById('metadata-extra');
   var saveBtn = document.getElementById('save-btn');
   var targetPage = document.getElementById('target-page');
   var statusEl = document.getElementById('status');
@@ -57,6 +58,8 @@ document.addEventListener('DOMContentLoaded', () => {
   var presets = [];
   var activePresetId = null;
   var saveHistory = [];
+  var selectedTargetType = 'page';
+  var pageDataReady = false;
 
   // 监听 storage 变化
   chrome.storage.onChanged.addListener(function(changes) {
@@ -280,6 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mainContent.classList.remove('hidden');
         loadTheme();
         refreshWorkspaceUI();
+        preloadRecentPage();
         extractCurrentPage();
         loadPageData();
         loadPresets();
@@ -296,6 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
           mainContent.classList.remove('hidden');
           loadTheme();
           refreshWorkspaceUI();
+          preloadRecentPage();
           extractCurrentPage();
           loadPageData();
           loadPresets();
@@ -406,8 +411,30 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div id="editable-title" class="editable-title" contenteditable="true">' + escapeHtml(response.title) + '</div>' +
             '<span class="edit-icon" title="点击编辑标题">✏</span>' +
             '</div>' +
-            metaHtml;
+            metaHtml +
+            '<span class="metadata-toggle" id="metadata-toggle">更多 ▾</span>';
           saveBtn.disabled = false;
+
+          // 渲染可编辑的元信息字段（初始隐藏）
+          renderMetadataFields(response);
+
+          // 绑定"更多"展开/收起
+          var toggleEl = document.getElementById('metadata-toggle');
+          if (toggleEl) {
+            toggleEl.addEventListener('click', function() {
+              var extra = document.getElementById('metadata-extra');
+              if (extra) {
+                var isHidden = extra.classList.contains('hidden');
+                if (isHidden) {
+                  extra.classList.remove('hidden');
+                  toggleEl.textContent = '收起 ▴';
+                } else {
+                  extra.classList.add('hidden');
+                  toggleEl.textContent = '更多 ▾';
+                }
+              }
+            });
+          }
         } else {
           contentPreview.innerHTML = '<p style="color:#d44">' + escapeHtml(response ? response.error : '提取失败') + '</p>';
         }
@@ -460,41 +487,159 @@ document.addEventListener('DOMContentLoaded', () => {
   function loadPageData() {
     // 清除上一次保存的状态提示（成功/失败/中断），开始新的页面上下文
     statusEl.className = 'status hidden';
-    pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
-    chrome.runtime.sendMessage({ action: 'fetch_pages', query: '' }, (result) => {
-      if (chrome.runtime.lastError) {
-        pageList.innerHTML = '<div class="page-list-empty">连接失败</div>';
-        return;
-      }
-      if (result && result.success) {
-        allDatabases = result.databases || [];
-        allPages = result.pages || [];
-        // 按标题排序
-        allDatabases.sort(function(a, b) { return a.title.localeCompare(b.title); });
-        allPages.sort(function(a, b) { return a.title.localeCompare(b.title); });
-        targetPage.value = '';
-        pageSearch.value = '';
-        pageSearch.placeholder = '选择或搜索目标页面...';
-        pageSearch.classList.remove('has-value');
-        // 由 loadRecentPages 统一渲染，避免 race condition
+
+    var cacheKey = pageCacheKey(currentWorkspaceBotId);
+
+    // 1. 先从缓存读取，立即可用
+    chrome.storage.local.get([cacheKey], function(result) {
+      var cache = result[cacheKey];
+      if (cache && cache.databases && cache.pages) {
+        allDatabases = cache.databases;
+        allPages = cache.pages;
+        pageDataReady = true;
         loadRecentPages();
+
+        // 2. 缓存超过 5 分钟则后台静默刷新（不阻塞 UI）
+        var CACHE_TTL = 5 * 60 * 1000;
+        if (!cache.timestamp || (Date.now() - cache.timestamp) > CACHE_TTL) {
+          fetchAndCachePages(cacheKey, true);
+        }
       } else {
-        pageList.innerHTML = '<div class="page-list-empty">' + escapeHtml(result ? result.error : '加载失败') + '</div>';
+        // 3. 无缓存，首次加载需等待 API
+        pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
+        fetchAndCachePages(cacheKey, false);
       }
     });
   }
 
+  function fetchAndCachePages(cacheKey, silent) {
+    chrome.runtime.sendMessage({ action: 'fetch_pages', query: '' }, function(result) {
+      if (chrome.runtime.lastError) {
+        if (!silent) pageList.innerHTML = '<div class="page-list-empty">连接失败</div>';
+        return;
+      }
+      if (result && result.success) {
+        var databases = result.databases || [];
+        var pages = result.pages || [];
+        databases.sort(function(a, b) { return a.title.localeCompare(b.title); });
+        pages.sort(function(a, b) { return a.title.localeCompare(b.title); });
+
+        // 更新内存
+        allDatabases = databases;
+        allPages = pages;
+        pageDataReady = true;
+
+        // 写入缓存
+        var kv = {};
+        kv[cacheKey] = { databases: databases, pages: pages, timestamp: Date.now() };
+        chrome.storage.local.set(kv);
+
+        // 静默刷新时只在页面列表已展开的情况下更新渲染，避免干扰用户操作
+        if (!silent) {
+          loadRecentPages();
+        } else {
+          // 后台刷新：更新内存数据，下拉框下次打开时自动使用新数据
+          recentPages = recentPages || [];
+        }
+      } else {
+        if (!silent) {
+          pageList.innerHTML = '<div class="page-list-empty">' + escapeHtml(result ? result.error : '加载失败') + '</div>';
+        }
+      }
+    });
+  }
+
+  // 渲染"更多"元信息字段
+  function renderMetadataFields(data) {
+    if (!metadataExtra) return;
+    var fields = [
+      { key: 'url', label: '链接', readonly: false },
+      { key: 'author', label: '作者', readonly: false },
+      { key: 'publishTime', label: '发布时间', readonly: false },
+      { key: 'description', label: '摘要', readonly: false },
+      { key: 'keywords', label: '关键词', readonly: false },
+      { key: 'siteName', label: '网站', readonly: false },
+      { key: 'coverImage', label: '封面图', readonly: false },
+      { key: 'wordCount', label: '字数', readonly: true },
+      { key: 'language', label: '语言', readonly: true },
+    ];
+
+    var html = '';
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      var value = '';
+      if (f.key === 'keywords' && Array.isArray(data[f.key])) {
+        value = data[f.key].join('、');
+      } else if (data[f.key] !== undefined && data[f.key] !== null) {
+        value = String(data[f.key]);
+      }
+      var readonlyClass = f.readonly ? ' readonly' : '';
+      var readonlyAttr = f.readonly ? ' readonly' : '';
+      html += '<div class="metadata-field-row">' +
+        '<span class="metadata-field-label">' + f.label + '</span>' +
+        '<input class="metadata-field-input' + readonlyClass + '" data-meta-key="' + f.key + '" value="' + escapeHtml(value) + '" placeholder="无"' + readonlyAttr + '>' +
+        '</div>';
+    }
+    metadataExtra.innerHTML = html;
+    metadataExtra.classList.add('hidden');
+  }
+
+  // 收集用户在元信息编辑区修改的值
+  function collectMetadataFromDOM() {
+    if (!metadataExtra || metadataExtra.classList.contains('hidden')) return null;
+    var result = {};
+    metadataExtra.querySelectorAll('.metadata-field-input').forEach(function(input) {
+      var key = input.getAttribute('data-meta-key');
+      var value = input.value.trim();
+      if (key && value) {
+        if (key === 'keywords') {
+          result[key] = value.split(/[,，、]/).map(function(s) { return s.trim(); }).filter(Boolean);
+        } else if (key === 'wordCount') {
+          result[key] = parseInt(value, 10) || 0;
+        } else {
+          result[key] = value;
+        }
+      }
+    });
+    return result;
+  }
+
   // 加载最近保存的位置（当前 workspace 作用域）
+  // 立即从 storage 预加载最近页面，不等网络请求
+  function preloadRecentPage() {
+    var key = recentPagesKey(currentWorkspaceBotId);
+    chrome.storage.local.get([key], function(result) {
+      var pages = result[key] || [];
+      recentPages = pages;
+      if (pages.length > 0 && !targetPage.value) {
+        var last = pages[0];
+        targetPage.value = last.id;
+        pageSearch.value = last.title;
+        pageSearch.classList.add('has-value');
+        selectedTargetType = last.type || 'page';
+      }
+    });
+  }
+
   function loadRecentPages() {
     var key = recentPagesKey(currentWorkspaceBotId);
     chrome.storage.local.get([key], function(result) {
       recentPages = result[key] || [];
       renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect);
+
+      // 自动选中上次保存的页面/数据库作为默认目标
+      if (recentPages.length > 0 && !targetPage.value) {
+        var last = recentPages[0];
+        targetPage.value = last.id;
+        pageSearch.value = last.title;
+        pageSearch.classList.add('has-value');
+        selectedTargetType = last.type || 'page';
+      }
     });
   }
 
   // 保存一个位置到最近列表
-  function saveRecentPage(id, title) {
+  function saveRecentPage(id, title, type) {
     if (!id || !currentWorkspaceBotId) return;
     var key = recentPagesKey(currentWorkspaceBotId);
     chrome.storage.local.get([key], function(result) {
@@ -502,7 +647,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // 移除已存在的相同 id
       list = list.filter(function(p) { return p.id !== id; });
       // 加到最前面
-      list.unshift({ id: id, title: title });
+      list.unshift({ id: id, title: title, type: type || 'page' });
       // 最多保留 5 个
       if (list.length > 5) list = list.slice(0, 5);
       chrome.storage.local.set({ [key]: list });
@@ -540,10 +685,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function filterPages(query) {
     if (!query) {
-      // 默认视图：最近保存 + 5 个数据库 + 5 个一级页面（过滤空标题）
-      var validDb = allDatabases.filter(function(d) { return d.title && d.title.trim(); });
-      var topPages = allPages.filter(function(p) { return p.parentType === 'workspace' && p.title && p.title.trim(); });
-      renderPageList(validDb.slice(0, 5), topPages.slice(0, 5), recentPages, pageList, onPageSelect);
+      // 默认视图：数据未就绪时显示加载中，避免先渲染部分数据再变化的闪烁
+      if (!pageDataReady) {
+        pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
+        return;
+      }
+      renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect);
       return;
     }
 
@@ -603,10 +750,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function onPageSelect(id, title) {
+  function onPageSelect(id, title, isDatabase) {
     targetPage.value = id;
     pageSearch.value = title;
     pageSearch.classList.add('has-value');
+    selectedTargetType = isDatabase ? 'database' : 'page';
     // 手动选不同页面时取消预设选中
     if (activePresetId) {
       var preset = null;
@@ -634,6 +782,16 @@ document.addEventListener('DOMContentLoaded', () => {
       data.title = titleEl.textContent.trim();
     }
 
+    // 合并用户在"更多"面板中编辑过的元信息
+    var editedMeta = collectMetadataFromDOM();
+    if (editedMeta) {
+      var metaKeys = Object.keys(editedMeta);
+      for (var mi = 0; mi < metaKeys.length; mi++) {
+        var mk = metaKeys[mi];
+        data[mk] = editedMeta[mk];
+      }
+    }
+
     saveBtn.disabled = true;
     saveBtn.textContent = '保存中...';
     showStatus('正在同步到 Notion...', 'loading');
@@ -643,6 +801,7 @@ document.addEventListener('DOMContentLoaded', () => {
       data: data,
       targetPage: targetPage.value,
       workspaceBotId: currentWorkspaceBotId,
+      targetType: selectedTargetType,
     }, (result) => {
       if (chrome.runtime.lastError) {
         showStatus('保存失败: 扩展后台服务未运行', 'error');
@@ -658,7 +817,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 保存到最近位置
         if (targetPage.value) {
           var pageTitle = pageSearch.value || targetPage.value;
-          saveRecentPage(targetPage.value, pageTitle);
+          saveRecentPage(targetPage.value, pageTitle, selectedTargetType);
         }
 
         if (result.pageUrl) {
@@ -800,6 +959,7 @@ document.addEventListener('DOMContentLoaded', () => {
       name: name,
       targetPageId: pageId,
       targetPageTitle: pageTitle,
+      targetType: selectedTargetType,
       createdAt: Date.now(),
     };
     presets.unshift(preset);
@@ -983,12 +1143,13 @@ document.addEventListener('DOMContentLoaded', () => {
         data: data,
         targetPage: targetPage.value,
         workspaceBotId: currentWorkspaceBotId,
+        targetType: selectedTargetType,
       }, function(result) {
         saveBtn.disabled = false;
         saveBtn.textContent = '保存到 Notion';
         if (result && result.success) {
           showStatus('重试成功！' + result.blocksCount + ' 个 blocks', 'success');
-          saveRecentPage(targetPage.value, targetPage.value);
+          saveRecentPage(targetPage.value, targetPage.value, selectedTargetType);
           if (result.pageUrl) {
             savedPageUrl = result.pageUrl;
             openInNotion.classList.remove('hidden');

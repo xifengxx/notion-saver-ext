@@ -593,6 +593,11 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
         if (blocks.length === 0) {
           console.log('[NotionSnap] HTML sample (first 500 chars):', data.contentHTML.substring(0, 500));
         }
+
+        // 关键词提取（标题 + 正文纯文本 N-gram 频率分析）
+        var bodyText = extractPlainText(data.contentHTML || '');
+        var keywordText = (data.title || '') + ' ' + (bodyText || '');
+        data.keywords = extractKeywords(keywordText, 5);
       }
       sendResponse(data);
     } catch (err) {
@@ -601,6 +606,81 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     }
   }
 });
+
+// ============================================================
+// 中文关键词提取（N-gram 频率分析，零外部依赖）
+// ============================================================
+var CN_STOP_WORDS = {
+  '的': true, '了': true, '在': true, '是': true, '我': true, '有': true, '和': true, '就': true,
+  '不': true, '人': true, '都': true, '一': true, '上': true, '也': true, '很': true, '到': true,
+  '说': true, '要': true, '去': true, '你': true, '会': true, '着': true, '看': true, '好': true,
+  '自己': true, '这': true, '他': true, '她': true, '它': true, '们': true, '那': true, '些': true,
+  '什么': true, '怎么': true, '如何': true, '可以': true, '这个': true, '那个': true, '还是': true,
+  '只是': true, '但是': true, '因为': true, '所以': true, '如果': true, '虽然': true, '然后': true,
+  '已经': true, '之后': true, '以后': true, '一样': true, '这样': true, '那样': true, '真的': true,
+  '觉得': true, '知道': true, '应该': true, '可能': true, '不会': true, '不能': true, '不要': true,
+  '一个': true, '一种': true, '很多': true, '一些': true, '每个': true, '所有': true, '不同': true,
+  '通过': true, '非常': true, '比较': true, '大家': true, '现在': true, '以及': true, '其实': true,
+  '对于': true, '关于': true, '进行': true, '需要': true, '出来': true, '起来': true, '就是': true,
+  '不是': true, '还有': true, '之间': true, '没有': true, '时候': true, '我们': true, '他们': true,
+  '你们': true, '她们': true, '能够': true, '什么': true, '怎么': true, '怎样': true
+};
+
+function extractKeywords(text, maxCount) {
+  if (!text || text.trim().length < 10) return [];
+  maxCount = maxCount || 5;
+
+  // 清洗文本，只保留中文、英文、数字
+  var cleaned = text.replace(/[^一-龥a-zA-Z0-9]/g, ' ');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  if (cleaned.length < 6) return [];
+
+  // 提取 2-4 字 N-gram，统计频率
+  var ngrams = {};
+  for (var n = 4; n >= 2; n--) {
+    for (var i = 0; i <= cleaned.length - n; i++) {
+      var gram = cleaned.substring(i, i + n);
+      if (gram.indexOf(' ') !== -1) continue;
+      if (/^\d+$/.test(gram)) continue;
+      if (gram.length <= 3 && /^[a-zA-Z]+$/.test(gram)) continue;
+      ngrams[gram] = (ngrams[gram] || 0) + 1;
+    }
+  }
+
+  // 过滤停用词和低频词
+  var candidates = [];
+  for (var gram in ngrams) {
+    if (ngrams[gram] < 2) continue;
+    if (CN_STOP_WORDS[gram]) continue;
+    // 过滤包含停用词边界的片段（如 "的时候"、"了一"）
+    var hasStopSubstr = false;
+    if (gram.length <= 3) {
+      for (var k = 0; k < gram.length; k++) {
+        if (CN_STOP_WORDS[gram[k]]) { hasStopSubstr = true; break; }
+      }
+    }
+    if (hasStopSubstr) continue;
+    candidates.push({ word: gram, count: ngrams[gram] });
+  }
+
+  // 按频率降序
+  candidates.sort(function(a, b) { return b.count - a.count; });
+
+  // 去子串：长词包含短词时保留长词
+  var filtered = [];
+  for (var i = 0; i < candidates.length; i++) {
+    var isSub = false;
+    for (var j = 0; j < filtered.length; j++) {
+      if (filtered[j].word.indexOf(candidates[i].word) !== -1) { isSub = true; break; }
+    }
+    if (!isSub) {
+      filtered.push(candidates[i]);
+      if (filtered.length >= maxCount * 3) break;
+    }
+  }
+
+  return filtered.slice(0, maxCount).map(function(item) { return item.word; });
+}
 
 // ============================================================
 // 从 HTML 中提取纯文本（安全网）
@@ -731,12 +811,20 @@ function parseWechatArticle(doc) {
   processWechatImages(clone);
   var meta = extractWechatMeta(doc);
 
+  // 计算字数
+  var bodyText = extractPlainText(clone.innerHTML);
+  var wordCount = bodyText ? bodyText.length : 0;
+
   return {
     type: 'wechat',
     title: meta.title,
     author: meta.author,
     publishTime: meta.publishTime,
     coverImage: meta.coverImage,
+    description: meta.description,
+    siteName: '微信公众号',
+    language: 'zh-CN',
+    wordCount: wordCount,
     contentHTML: clone.innerHTML,
     url: window.location.href,
   };
@@ -777,12 +865,42 @@ function extractGenericContent(doc) {
     clone.querySelectorAll(removeSels[i]).forEach(function(el) { el.remove(); });
   }
 
+  // 提取通用元数据
+  var meta = extractGenericMeta(doc);
+
+  // 计算字数
+  var bodyText = extractPlainText(clone.innerHTML);
+  var wordCount = bodyText ? bodyText.length : 0;
+
   return {
     type: 'generic',
     title: doc.title || '',
-    author: '',
+    author: meta.author,
+    publishTime: meta.publishTime,
+    coverImage: meta.coverImage,
+    description: meta.description,
+    siteName: meta.siteName,
+    language: meta.language,
+    wordCount: wordCount,
     contentHTML: clone.innerHTML,
     url: window.location.href,
+  };
+}
+
+// 从 meta 标签提取通用网页元数据
+function extractGenericMeta(doc) {
+  function metaContent(selector) {
+    var el = doc.querySelector(selector);
+    return el ? (el.content || '').trim() : '';
+  }
+
+  return {
+    description: metaContent('meta[property="og:description"]') || metaContent('meta[name="description"]'),
+    siteName: metaContent('meta[property="og:site_name"]') || (location.hostname || ''),
+    language: (doc.documentElement.lang || '').substring(0, 5) || 'unknown',
+    author: metaContent('meta[name="author"]') || metaContent('meta[property="article:author"]'),
+    publishTime: metaContent('meta[property="article:published_time"]'),
+    coverImage: metaContent('meta[property="og:image"]'),
   };
 }
 
@@ -955,5 +1073,9 @@ function extractWechatMeta(doc) {
     }
   }
 
-  return { title: title, author: author, publishTime: publishTime, coverImage: coverImage };
+  var description = '';
+  var descEl = doc.querySelector('meta[property="og:description"]') || doc.querySelector('meta[name="description"]');
+  if (descEl) description = (descEl.content || '').trim();
+
+  return { title: title, author: author, publishTime: publishTime, coverImage: coverImage, description: description };
 }

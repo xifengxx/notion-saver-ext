@@ -127,7 +127,8 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
 
   if (message.action === 'save_to_notion') {
     var botId = message.workspaceBotId || null;
-    saveToNotion(message.data, message.targetPage, botId).then(sendResponse).catch(function(err) {
+    var targetType = message.targetType || 'page';
+    saveToNotion(message.data, message.targetPage, botId, targetType).then(sendResponse).catch(function(err) {
       console.error('[NotionSnap] Unhandled error in saveToNotion:', err);
       sendResponse({ success: false, error: err.message || '保存失败' });
     });
@@ -244,7 +245,7 @@ function refreshToken(refreshTokenValue) {
 // ============================================================
 // Notion API 核心保存流程
 // ============================================================
-function saveToNotion(data, parentPageId, workspaceBotId) {
+function saveToNotion(data, parentPageId, workspaceBotId, targetType) {
   // 标记保存进行中，用于检测 SW 终止导致的中断 + 进度跟踪
   chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'creating_page', blocksTotal: 0, blocksDone: 0, retryCurrent: 0 } });
 
@@ -253,7 +254,15 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
       return { success: false, error: '未登录或认证已过期，请重新登录' };
     }
 
-    return createPage(token, data, parentPageId, workspaceBotId).then(function(page) {
+    // 解析目标页面后，始终尝试获取 schema：
+    //   - 数据库目标 → schema 获取成功 → 按名称/类型自动匹配
+    //   - 页面目标     → schema 获取失败（返回 {}）→ fieldMapping 为 null → 元信息写正文
+    return getDefaultParent(token, parentPageId, workspaceBotId, targetType).then(function(parent) {
+      return fetchDatabaseSchema(token, parent.id).then(function(schema) {
+        var fieldMapping = autoMatchFields(schema, data);
+        return createPage(token, data, parent, workspaceBotId, fieldMapping);
+      });
+    }).then(function(page) {
       var pageId = page.id;
 
       var blocks = (data.blocks || []).map(function(b) {
@@ -344,89 +353,270 @@ function appendBlocksWithRetry(token, pageId, blocks, maxRetries) {
 }
 
 // ============================================================
+// 字段映射 — 将元信息映射到 Notion 数据库 properties（v0.5.0）
+// ============================================================
+// 字段定义：key → { type, extract }  Notion 属性类型 + 从 data 取值方式
+var METADATA_FIELDS = {
+  url:          { notionType: 'url',         valueType: 'string' },
+  description:  { notionType: 'rich_text',    valueType: 'string' },
+  coverImage:   { notionType: 'url',          valueType: 'string' },
+  author:       { notionType: 'rich_text',    valueType: 'string' },
+  siteName:     { notionType: 'rich_text',    valueType: 'string' },
+  publishTime:  { notionType: 'date',         valueType: 'date' },
+  language:     { notionType: 'rich_text',    valueType: 'string' },
+  keywords:     { notionType: 'multi_select', valueType: 'keywords' },
+  wordCount:    { notionType: 'number',       valueType: 'number' },
+};
+
+// 每个字段的候选属性名（中英文），大小写不敏感匹配
+var FIELD_ALIASES = {
+  url:          ['URL', 'url', '链接', '链接地址', '网址', '网站', '网站地址', '网页链接', '原文链接', '来源链接', 'source url', 'link'],
+  description:  ['摘要', 'Description', 'description', '描述', '简介', 'Summary', 'summary'],
+  coverImage:   ['封面图', 'Cover', 'cover', '封面', 'Cover Image', 'cover image', 'coverImage', 'image', '图片'],
+  author:       ['作者', 'Author', 'author', '发布者', 'writer'],
+  siteName:     ['网站名称', 'Site', 'site', '来源', '来源网站', 'siteName', 'site name', 'source'],
+  publishTime:  ['发布时间', 'Date', 'date', '发布日期', 'publishTime', 'published', '创建时间', '时间'],
+  language:     ['语言', 'Language', 'language', 'lang', 'locale'],
+  keywords:     ['关键词', 'Keywords', 'keywords', '标签', 'Tags', 'tags'],
+  wordCount:    ['字数', 'Word Count', 'wordCount', 'words', '字数统计', 'word count', 'WordCount'],
+};
+
+// 获取数据库 schema（属性名 + 类型列表）
+function fetchDatabaseSchema(token, databaseId) {
+  var url = '/v1/databases/' + databaseId.replace(/-/g, '');
+  return notionFetch(url, token, { method: 'GET' }).then(function(response) {
+    var props = response.properties || {};
+    var schema = {};
+    var propNames = Object.keys(props);
+    for (var i = 0; i < propNames.length; i++) {
+      var name = propNames[i];
+      var prop = props[name];
+      schema[name] = {
+        type: prop.type,
+        id: prop.id,
+      };
+    }
+    return schema;
+  }).catch(function(err) {
+    // schema 获取失败不阻塞保存，降级为无匹配
+    console.error('[NotionSnap] fetchDatabaseSchema error:', err);
+    return {};
+  });
+}
+
+// 自动匹配：遍历 METADATA_FIELDS，按属性名 + 类型匹配数据库 schema
+// 返回 { fieldKey: propertyName } 映射，供 buildProperties/buildMetadataBlocks 使用
+function autoMatchFields(schema, data) {
+  var mapping = {};
+  var fieldKeys = Object.keys(METADATA_FIELDS);
+  var schemaNames = Object.keys(schema);
+
+  for (var i = 0; i < fieldKeys.length; i++) {
+    var key = fieldKeys[i];
+    var value = data[key];
+    // 无数据则跳过
+    if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+
+    var def = METADATA_FIELDS[key];
+    var expectType = def.notionType;
+    var aliases = FIELD_ALIASES[key] || [key];
+
+    // 在 schema 中查找匹配的属性：名称匹配 + 类型兼容
+    for (var j = 0; j < schemaNames.length; j++) {
+      var propName = schemaNames[j];
+      var propInfo = schema[propName];
+      var propType = propInfo.type;
+
+      // 名称匹配（大小写不敏感）
+      var nameMatch = false;
+      for (var k = 0; k < aliases.length; k++) {
+        if (propName.toLowerCase() === aliases[k].toLowerCase()) {
+          nameMatch = true;
+          break;
+        }
+      }
+      if (!nameMatch) continue;
+
+      // 类型兼容：rich_text 可匹配 text/rich_text/title，url 匹配 url，date 匹配 date，等等
+      if (isTypeCompatible(expectType, propType)) {
+        mapping[key] = propName;
+        break; // 每个字段只匹配第一个兼容属性
+      }
+    }
+  }
+
+  return Object.keys(mapping).length > 0 ? mapping : null;
+}
+
+function isTypeCompatible(expectType, actualType) {
+  if (expectType === actualType) return true;
+  // rich_text 兼容 title 和 text 类型
+  if (expectType === 'rich_text' && (actualType === 'title' || actualType === 'text')) return true;
+  return false;
+}
+
+function buildProperties(data, fieldMapping) {
+  var properties = {
+    title: {
+      title: [{ type: 'text', text: { content: data.title || 'Untitled' } }],
+    },
+  };
+
+  if (!fieldMapping) return properties;
+
+  var fieldKeys = Object.keys(METADATA_FIELDS);
+  for (var i = 0; i < fieldKeys.length; i++) {
+    var key = fieldKeys[i];
+    var propName = fieldMapping[key];
+    if (!propName) continue; // 用户未配置此字段的属性名
+
+    var value = data[key];
+    if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+
+    var def = METADATA_FIELDS[key];
+    if (def.notionType === 'url' && typeof value === 'string') {
+      properties[propName] = { type: 'url', url: value };
+    } else if (def.notionType === 'rich_text' && typeof value === 'string') {
+      properties[propName] = {
+        type: 'rich_text',
+        rich_text: [{ type: 'text', text: { content: value } }],
+      };
+    } else if (def.notionType === 'date' && typeof value === 'string') {
+      var parsedDate = parseDateForNotion(value);
+      if (parsedDate) {
+        properties[propName] = { type: 'date', date: { start: parsedDate } };
+      }
+    } else if (def.notionType === 'multi_select' && Array.isArray(value)) {
+      var options = [];
+      for (var j = 0; j < value.length; j++) {
+        options.push({ name: value[j] });
+      }
+      properties[propName] = { type: 'multi_select', multi_select: options };
+    } else if (def.notionType === 'number' && typeof value === 'number') {
+      properties[propName] = { type: 'number', number: value };
+    }
+  }
+
+  return properties;
+}
+
+function buildMetadataBlocks(data, fieldMapping) {
+  var children = [];
+
+  function isMapped(key) {
+    return fieldMapping && fieldMapping[key];
+  }
+
+  // URL 块（未映射时写入正文）
+  if (!isMapped('url') && data.url) {
+    var urlText;
+    if (data.url.indexOf('http') === 0) {
+      var cleanUrl = data.url.split('#')[0];
+      urlText = { type: 'text', text: { content: cleanUrl, link: { url: cleanUrl } }, annotations: { color: 'gray' } };
+    } else {
+      urlText = { type: 'text', text: { content: data.url }, annotations: { color: 'gray' } };
+    }
+    children.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: [urlText] } });
+  }
+
+  // 收集未映射的文本元信息
+  var metaParts = [];
+  function pushMeta(key, label) {
+    if (!isMapped(key) && data[key]) metaParts.push(label + data[key]);
+  }
+  pushMeta('author', '作者：');
+  pushMeta('publishTime', '发布于：');
+  pushMeta('siteName', '来源：');
+  pushMeta('language', '语言：');
+  if (!isMapped('wordCount') && typeof data.wordCount === 'number' && data.wordCount > 0) {
+    metaParts.push('字数：' + data.wordCount);
+  }
+
+  // 摘要（未映射时写入正文）
+  if (!isMapped('description') && data.description) {
+    metaParts.push(data.description);
+  }
+
+  // 关键词（未映射时写入正文）
+  if (!isMapped('keywords') && data.keywords && data.keywords.length > 0) {
+    metaParts.push('关键词：' + data.keywords.join('、'));
+  }
+
+  if (metaParts.length > 0) {
+    children.push({ object: 'block', type: 'divider', divider: {} });
+    children.push({
+      object: 'block',
+      type: 'paragraph',
+      paragraph: { rich_text: [{ type: 'text', text: { content: metaParts.join(' · ') } }] },
+    });
+  }
+
+  return children;
+}
+
+function parseDateForNotion(dateStr) {
+  if (!dateStr) return null;
+  // 尝试解析 ISO 格式：2024-01-15T10:30:00+08:00
+  var isoMatch = dateStr.match(/(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  // 尝试解析中文格式：2024年1月15日
+  var cnMatch = dateStr.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (cnMatch) {
+    var month = cnMatch[2].length === 1 ? '0' + cnMatch[2] : cnMatch[2];
+    var day = cnMatch[3].length === 1 ? '0' + cnMatch[3] : cnMatch[3];
+    return cnMatch[1] + '-' + month + '-' + day;
+  }
+  // 尝试解析 Date 对象
+  try {
+    var d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      var m = d.getMonth() + 1;
+      var day2 = d.getDate();
+      return d.getFullYear() + '-' + (m < 10 ? '0' + m : m) + '-' + (day2 < 10 ? '0' + day2 : day2);
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// ============================================================
 // 创建页面
 // ============================================================
-function createPage(token, data, parentPageId, botId) {
-  return getDefaultParent(token, parentPageId, botId).then(function(parent) {
-    var properties = {
-      title: {
-        title: [{ type: 'text', text: { content: data.title || 'Untitled' } }],
-      },
-    };
+function createPage(token, data, parent, botId, fieldMapping) {
+  var properties = buildProperties(data, fieldMapping);
+  var children = buildMetadataBlocks(data, fieldMapping);
 
-    var urlText;
-    if (data.url && data.url.indexOf('http') === 0) {
-      var cleanUrl = data.url.split('#')[0];
-      urlText = {
-        type: 'text',
-        text: { content: cleanUrl, link: { url: cleanUrl } },
-        annotations: { color: 'gray' },
+  var isDatabase = parent.type === 'database';
+  var parentField = isDatabase ? { database_id: parent.id } : { page_id: parent.id };
+
+  // 数据库父页面必须有 properties（至少 title），普通页面不需要
+  var body = {
+    parent: parentField,
+    properties: properties,
+    children: children,
+  };
+
+  return notionFetch('/v1/pages', token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }).catch(function(err) {
+    // 兜底：type 标记为 page 但实际是 database 的情况
+    if (!isDatabase && err.message &&
+        (err.message.indexOf('Could not find page') >= 0 ||
+         err.message.indexOf('parent') >= 0 ||
+         err.message.indexOf('Parent') >= 0)) {
+      var dbBody = {
+        parent: { database_id: parent.id },
+        properties: properties,
+        children: children,
       };
-    } else {
-      urlText = {
-        type: 'text',
-        text: { content: data.url || '' },
-        annotations: { color: 'gray' },
-      };
-    }
-
-    var children = [
-      {
-        object: 'block',
-        type: 'paragraph',
-        paragraph: {
-          rich_text: [urlText],
-        },
-      },
-      {
-        object: 'block',
-        type: 'divider',
-        divider: {},
-      },
-    ];
-
-    if (data.author || data.publishTime) {
-      var metaText = [data.author, data.publishTime].filter(Boolean).join(' · ');
-      children.push({
-        object: 'block',
-        type: 'paragraph',
-        paragraph: {
-          rich_text: [{ type: 'text', text: { content: metaText } }],
-        },
-      });
-      children.push({
-        object: 'block',
-        type: 'divider',
-        divider: {},
+      return notionFetch('/v1/pages', token, {
+        method: 'POST',
+        body: JSON.stringify(dbBody),
       });
     }
-
-    var body = {
-      parent: { page_id: parent.id },
-      properties: properties,
-      children: children,
-    };
-
-    return notionFetch('/v1/pages', token, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }).catch(function(err) {
-      if (parent.type === 'page' && err.message &&
-          (err.message.indexOf('Could not find page') >= 0 ||
-           err.message.indexOf('parent') >= 0 ||
-           err.message.indexOf('Parent') >= 0)) {
-        var dbBody = {
-          parent: { database_id: parent.id },
-          properties: properties,
-          children: children,
-        };
-        return notionFetch('/v1/pages', token, {
-          method: 'POST',
-          body: JSON.stringify(dbBody),
-        });
-      }
-      throw err;
-    });
+    throw err;
   });
 }
 
@@ -640,9 +830,9 @@ function uploadImages(token, blocks) {
 // ============================================================
 // 获取默认父页面
 // ============================================================
-function getDefaultParent(token, explicitParentId, botId) {
+function getDefaultParent(token, explicitParentId, botId, targetType) {
   if (explicitParentId) {
-    return Promise.resolve({ id: explicitParentId, type: 'page' });
+    return Promise.resolve({ id: explicitParentId, type: targetType || 'page' });
   }
 
   // 未选择目标页面时，fallback 到最近保存的页面
@@ -651,7 +841,7 @@ function getDefaultParent(token, explicitParentId, botId) {
     chrome.storage.local.get([rpKey], function(result) {
       var recentPages = result[rpKey] || [];
       if (recentPages.length > 0) {
-        resolve({ id: recentPages[0].id, type: 'page' });
+        resolve({ id: recentPages[0].id, type: recentPages[0].type || 'page' });
       } else {
         // 没有最近保存记录，fallback 到 Notion 搜索
         resolve(fallbackToDefaultPage(token).then(function(id) {

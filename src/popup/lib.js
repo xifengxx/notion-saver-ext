@@ -21,6 +21,14 @@ export function saveHistoryKey(botId) {
   return 'save_history_' + (botId || 'default');
 }
 
+export function dbSchemaKey(databaseId) {
+  return 'db_schema_' + (databaseId || 'unknown');
+}
+
+export function pageCacheKey(botId) {
+  return 'page_cache_' + (botId || 'default');
+}
+
 export function escapeHtml(text) {
   var div = document.createElement('div');
   div.textContent = text;

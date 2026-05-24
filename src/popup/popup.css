@@ -148,6 +148,56 @@ header h1 {
   line-height: 1.4;
 }
 
+/* 元信息展开（"更多"） */
+.metadata-toggle {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent-color);
+  cursor: pointer;
+  margin-top: 4px;
+  user-select: none;
+  opacity: 0.85;
+}
+.metadata-toggle:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.metadata-extra {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--input-border);
+}
+.metadata-field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.metadata-field-label {
+  font-size: 11px;
+  color: var(--meta-color);
+  min-width: 48px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.metadata-field-input {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--primary-text);
+}
+.metadata-field-input:focus {
+  border-color: var(--focus-color);
+  outline: none;
+}
+.metadata-field-input.readonly {
+  background: var(--hover-bg);
+  color: var(--meta-color);
+}
+
 /* 保存区 */
 .save-section {
   position: relative;
@@ -1433,6 +1483,10 @@ header h1 {
   color: var(--btn-text) !important;
   border: none !important;
 }
+
+/* ============================================================
+   自定义保存字段（v0.5.1）
+   ============================================================ */
 
 /* ============================================================
    历史面板（v0.4.0）
