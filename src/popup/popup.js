@@ -167,6 +167,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 搜索输入实时过滤
   pageSearch.addEventListener('input', () => {
+    if (!dropdownOpen) {
+      dropdownOpen = true;
+      pagePickerDropdown.classList.remove('hidden');
+      document.querySelector('.popup').classList.add('dropdown-active');
+    }
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
       filterPages(pageSearch.value.trim());
@@ -535,29 +540,66 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function filterPages(query) {
     if (!query) {
-      renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect);
+      // 默认视图：最近保存 + 5 个数据库 + 5 个一级页面（过滤空标题）
+      var validDb = allDatabases.filter(function(d) { return d.title && d.title.trim(); });
+      var topPages = allPages.filter(function(p) { return p.parentType === 'workspace' && p.title && p.title.trim(); });
+      renderPageList(validDb.slice(0, 5), topPages.slice(0, 5), recentPages, pageList, onPageSelect);
       return;
     }
-
-    // 立即渲染搜索中状态，覆盖旧结果
-    pageList.innerHTML = '<div class="page-list-loading">搜索中...</div>';
 
     var q = query.toLowerCase();
     var filteredDb = allDatabases.filter(function(d) { return d.title.toLowerCase().indexOf(q) >= 0; });
     var filteredPages = allPages.filter(function(p) { return p.title.toLowerCase().indexOf(q) >= 0; });
 
+    // 立即渲染本地匹配结果，不等 API 返回
+    renderPageList(filteredDb, filteredPages, [], pageList, onPageSelect, true);
+
     if (query.length >= 2) {
       chrome.runtime.sendMessage({ action: 'fetch_pages', query: query }, (result) => {
         if (result && result.success) {
-          // 直接使用 API 结果，不合并旧数据
-          renderPageList(result.databases || [], result.pages || [], [], pageList, onPageSelect);
-        } else {
-          // API 失败时回退到本地过滤结果
-          renderPageList(filteredDb, filteredPages, [], pageList, onPageSelect);
+          mergeSearchResults(q, filteredDb, filteredPages, result.databases || [], result.pages || []);
         }
       });
-    } else {
-      renderPageList(filteredDb, filteredPages, [], pageList, onPageSelect);
+    }
+
+    function mergeSearchResults(q, localDb, localPages, apiDb, apiPages) {
+      var seenIds = {};
+      var mergedDb = [];
+      var mergedPages = [];
+
+      // 1. 本地过滤的数据库（indexOf 匹配标题）
+      for (var i = 0; i < localDb.length; i++) {
+        if (!seenIds[localDb[i].id]) {
+          seenIds[localDb[i].id] = true;
+          mergedDb.push(localDb[i]);
+        }
+      }
+
+      // 2. API 返回的数据库（去重）
+      for (var i = 0; i < apiDb.length; i++) {
+        if (!seenIds[apiDb[i].id]) {
+          seenIds[apiDb[i].id] = true;
+          mergedDb.push(apiDb[i]);
+        }
+      }
+
+      // 3. 本地过滤的所有页面（含容器和文章），indexOf 对中文部分匹配更准
+      for (var i = 0; i < localPages.length; i++) {
+        if (!seenIds[localPages[i].id]) {
+          seenIds[localPages[i].id] = true;
+          mergedPages.push(localPages[i]);
+        }
+      }
+
+      // 4. API 返回的页面（去重，补充本地缓存漏掉的页面）
+      for (var i = 0; i < apiPages.length; i++) {
+        if (!seenIds[apiPages[i].id]) {
+          seenIds[apiPages[i].id] = true;
+          mergedPages.push(apiPages[i]);
+        }
+      }
+
+      renderPageList(mergedDb, mergedPages, [], pageList, onPageSelect, true);
     }
   }
 

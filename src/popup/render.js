@@ -3,6 +3,14 @@
 
 import { escapeHtml } from './lib.js';
 
+// 页面层级权重：workspace(0 一级) > page_id/block_id(1 二级) > 其他(2) > database_id(3 三级文章)
+function parentTypeWeight(pt) {
+  if (pt === 'workspace') return 0;
+  if (pt === 'page_id' || pt === 'block_id') return 1;
+  if (pt === 'database_id') return 3;
+  return 2;
+}
+
 // 预设 pill 5 个基础色（背景色、文字色）
 var PILL_BASE_COLORS = [
   { bg: '#3B82F6', text: '#FFFFFF' },
@@ -69,9 +77,51 @@ export function getPillColor(index) {
   return { bg: newBg, text: textColor };
 }
 
-export function renderPageList(databases, pages, recent, pageListEl, onSelect) {
+export function renderPageList(databases, pages, recent, pageListEl, onSelect, isSearch) {
   var html = '';
   recent = recent || [];
+
+  // === 搜索模式：数据库 + 页面混合平铺，按层级排序 ===
+  // 页面层级权重：workspace(0) > page_id(1) > 其他(2) > database_id(3)
+  if (isSearch) {
+    // 页面按层级排序
+    var sortedPages = pages.slice().sort(function(a, b) {
+      var wa = parentTypeWeight(a.parentType);
+      var wb = parentTypeWeight(b.parentType);
+      return wa - wb;
+    });
+
+    // 数据库（带类型标签）
+    for (var i = 0; i < databases.length; i++) {
+      html += '<div class="page-list-item page-list-item-db" data-id="' + databases[i].id + '">' +
+        '<span class="page-icon"></span>' +
+        '<span class="page-title">' + escapeHtml(databases[i].title) + '</span>' +
+        '<span class="page-type-tag">数据库</span></div>';
+    }
+    // 页面（按层级：一级 > 二级 > 三级文章）
+    for (var i = 0; i < sortedPages.length; i++) {
+      var tag = '';
+      if (sortedPages[i].parentType === 'workspace') {
+        tag = '<span class="page-type-tag page-tag-workspace">页面</span>';
+      } else if (sortedPages[i].parentType === 'page_id') {
+        tag = '<span class="page-type-tag page-tag-sub">子页面</span>';
+      }
+      html += '<div class="page-list-item" data-id="' + sortedPages[i].id + '">' +
+        '<span class="page-icon"></span>' +
+        '<span class="page-title">' + escapeHtml(sortedPages[i].title) + '</span>' +
+        tag + '</div>';
+    }
+
+    if (databases.length === 0 && sortedPages.length === 0) {
+      html = '<div class="page-list-empty">未找到匹配的页面或数据库</div>';
+    }
+
+    pageListEl.innerHTML = html;
+    bindPageItemClicks(pageListEl, onSelect);
+    return;
+  }
+
+  // === 非搜索模式：分类展示 ===
 
   // 最近保存
   if (recent.length > 0) {
@@ -84,38 +134,96 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect) {
     html += '</div>';
   }
 
-  // 数据库
+  // 数据库（最多显示 12 个，其余通过搜索查找）
   if (databases.length > 0) {
+    var MAX_DB = 12;
     html += '<div class="page-list-section"><div class="page-list-label">数据库</div>';
-    for (var i = 0; i < databases.length; i++) {
+    for (var i = 0; i < databases.length && i < MAX_DB; i++) {
       html += '<div class="page-list-item" data-id="' + databases[i].id + '">' +
         '<span class="page-icon"></span>' +
         '<span class="page-title">' + escapeHtml(databases[i].title) + '</span></div>';
     }
+    if (databases.length > MAX_DB) {
+      html += '<div class="page-list-more">还有 ' + (databases.length - MAX_DB) + ' 个数据库，请搜索查找</div>';
+    }
     html += '</div>';
   }
 
-  // 页面
-  if (pages.length > 0) {
+  // 按 parentType 拆分页面：workspace 顶层页面 vs 嵌套页面
+  var topPages = [];
+  var nestedPages = [];
+  for (var i = 0; i < pages.length; i++) {
+    if (pages[i].parentType === 'workspace') {
+      topPages.push(pages[i]);
+    } else {
+      nestedPages.push(pages[i]);
+    }
+  }
+
+  // 顶层页面（workspace 根目录下，最多显示 15 个）
+  if (topPages.length > 0) {
+    var MAX_TOP = 15;
     html += '<div class="page-list-section"><div class="page-list-label">页面</div>';
-    var displayCount = pages.length > 10 ? 10 : pages.length;
-    for (var i = 0; i < displayCount; i++) {
-      html += '<div class="page-list-item" data-id="' + pages[i].id + '">' +
+    for (var i = 0; i < topPages.length && i < MAX_TOP; i++) {
+      html += '<div class="page-list-item" data-id="' + topPages[i].id + '">' +
         '<span class="page-icon"></span>' +
-        '<span class="page-title">' + escapeHtml(pages[i].title) + '</span></div>';
+        '<span class="page-title">' + escapeHtml(topPages[i].title) + '</span></div>';
     }
-    if (pages.length > 10) {
-      html += '<div class="page-list-more">还有更多页面，请输入关键词搜索</div>';
+    if (topPages.length > MAX_TOP) {
+      html += '<div class="page-list-more">还有 ' + (topPages.length - MAX_TOP) + ' 个页面，请搜索查找</div>';
     }
     html += '</div>';
   }
 
-  if (recent.length === 0 && databases.length === 0 && pages.length === 0) {
+  // 嵌套页面（数据库内条目或子页面，权重最低）
+  // 只有当存在更优先的结果时才默认折叠；仅嵌套结果时直接展开
+  var hasBetterResults = recent.length > 0 || databases.length > 0 || topPages.length > 0;
+  if (nestedPages.length > 0) {
+    if (hasBetterResults) {
+      html += '<div class="page-list-section"><div class="page-list-label">子页面</div>';
+      html += '<div class="page-list-nested-toggle" style="cursor:pointer;padding:2px 8px;font-size:10px;color:var(--placeholder-color)">' + nestedPages.length + ' 个结果 &#9662;</div>';
+      html += '<div class="page-list-nested hidden">';
+    } else {
+      html += '<div class="page-list-section"><div class="page-list-label">页面</div>';
+      html += '<div class="page-list-nested">';
+    }
+    for (var i = 0; i < nestedPages.length; i++) {
+      html += '<div class="page-list-item page-list-item-nested" data-id="' + nestedPages[i].id + '">' +
+        '<span class="page-icon"></span>' +
+        '<span class="page-title">' + escapeHtml(nestedPages[i].title) + '</span></div>';
+    }
+    html += '</div>';
+    html += '</div>';
+  }
+
+  if (recent.length === 0 && databases.length === 0 && topPages.length === 0 && nestedPages.length === 0) {
     html = '<div class="page-list-empty">未找到匹配的页面或数据库</div>';
   }
 
   pageListEl.innerHTML = html;
 
+  // 嵌套页面展开/折叠
+  var toggleEl = pageListEl.querySelector('.page-list-nested-toggle');
+  if (toggleEl) {
+    toggleEl.addEventListener('click', function() {
+      var nested = pageListEl.querySelector('.page-list-nested');
+      if (nested) {
+        var isHidden = nested.classList.contains('hidden');
+        if (isHidden) {
+          nested.classList.remove('hidden');
+          toggleEl.innerHTML = '隐藏子页面 &#9652;';
+        } else {
+          nested.classList.add('hidden');
+          toggleEl.innerHTML = '显示 ' + nestedPages.length + ' 个 &#9662;';
+        }
+      }
+    });
+  }
+
+  bindPageItemClicks(pageListEl, onSelect);
+}
+
+function bindPageItemClicks(pageListEl, onSelect) {
   pageListEl.querySelectorAll('.page-list-item').forEach(function(item) {
     item.addEventListener('click', function() {
       var id = this.getAttribute('data-id');

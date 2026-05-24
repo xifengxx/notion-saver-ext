@@ -253,7 +253,7 @@ function saveToNotion(data, parentPageId, workspaceBotId) {
       return { success: false, error: '未登录或认证已过期，请重新登录' };
     }
 
-    return createPage(token, data, parentPageId).then(function(page) {
+    return createPage(token, data, parentPageId, workspaceBotId).then(function(page) {
       var pageId = page.id;
 
       var blocks = (data.blocks || []).map(function(b) {
@@ -346,8 +346,8 @@ function appendBlocksWithRetry(token, pageId, blocks, maxRetries) {
 // ============================================================
 // 创建页面
 // ============================================================
-function createPage(token, data, parentPageId) {
-  return getDefaultParent(token, parentPageId).then(function(parent) {
+function createPage(token, data, parentPageId, botId) {
+  return getDefaultParent(token, parentPageId, botId).then(function(parent) {
     var properties = {
       title: {
         title: [{ type: 'text', text: { content: data.title || 'Untitled' } }],
@@ -465,18 +465,35 @@ function requestFileUpload(token, filename, contentType, contentLength) {
     }
     return response.json();
   }).then(function(data) {
-    return { id: data.id, upload_url: data.upload_url, status: data.status };
+    return { id: data.id, upload_url: data.upload_url || data.url || data.signed_url, status: data.status };
   });
 }
 
-function uploadBinaryToSignedUrl(uploadUrl, blob, contentType) {
+function uploadBinaryToSignedUrl(uploadUrl, blob, contentType, token) {
+  var method = 'PUT';
+  var body = blob;
+  var headers = { 'Content-Type': contentType };
+  // Notion API gateway URL（非 S3），用 FormData POST + Authorization + Notion-Version
+  if (uploadUrl.indexOf('https://api.notion.com/') === 0 && token) {
+    method = 'POST';
+    var formData = new FormData();
+    formData.append('file', blob, 'image.png');
+    body = formData;
+    // FormData 自动设 Content-Type（含 boundary），不要手动覆盖
+    headers = {};
+    headers['Authorization'] = 'Bearer ' + token;
+    headers['Notion-Version'] = '2022-06-28';
+  }
   return fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': contentType },
-    body: blob,
+    method: method,
+    headers: headers,
+    body: body,
   }).then(function(response) {
     if (!response.ok) {
-      throw new Error('S3 upload failed: HTTP ' + response.status);
+      return response.text().catch(function() { return ''; }).then(function(body) {
+        console.log('[NotionSnap] Upload failed —', response.status, body.substring(0, 200));
+        throw new Error('File upload failed: HTTP ' + response.status);
+      });
     }
   });
 }
@@ -492,9 +509,12 @@ function downloadAllImages(urls) {
           return { url: url, blob: null, error: 'invalid_size' };
         }
         var ct = response.headers.get('Content-Type') || '';
+        var originalCt = ct;
         if (!ct || ct.indexOf('image/') !== 0) {
           ct = getContentTypeFromUrl(url);
         }
+        console.log('[NotionSnap] Downloaded image:', url.substring(0, 80), '| size:', blob.size,
+          '| response-CT:', originalCt, '| derived-CT:', ct, '| blob.type:', blob.type);
         return { url: url, blob: blob, contentType: ct };
       });
     }).catch(function(err) {
@@ -550,7 +570,9 @@ function uploadImageBatch(token, urls, index, blobMap, uploadMap) {
 
   return requestFileUpload(token, filename, blobInfo.contentType, blobInfo.blob.size)
     .then(function(uploadInfo) {
-      return uploadBinaryToSignedUrl(uploadInfo.upload_url, blobInfo.blob, blobInfo.contentType)
+      console.log('[NotionSnap] Got upload URL for', filename, '| id:', uploadInfo.id,
+        '| url:', uploadInfo.upload_url ? uploadInfo.upload_url.substring(0, 150) : 'NONE');
+      return uploadBinaryToSignedUrl(uploadInfo.upload_url, blobInfo.blob, blobInfo.contentType, token)
         .then(function() {
           return nextImage({ success: true, id: uploadInfo.id });
         });
@@ -618,13 +640,25 @@ function uploadImages(token, blocks) {
 // ============================================================
 // 获取默认父页面
 // ============================================================
-function getDefaultParent(token, explicitParentId) {
+function getDefaultParent(token, explicitParentId, botId) {
   if (explicitParentId) {
     return Promise.resolve({ id: explicitParentId, type: 'page' });
   }
 
-  return fallbackToDefaultPage(token).then(function(id) {
-    return { id: id, type: 'page' };
+  // 未选择目标页面时，fallback 到最近保存的页面
+  var rpKey = recentPagesKey(botId);
+  return new Promise(function(resolve) {
+    chrome.storage.local.get([rpKey], function(result) {
+      var recentPages = result[rpKey] || [];
+      if (recentPages.length > 0) {
+        resolve({ id: recentPages[0].id, type: 'page' });
+      } else {
+        // 没有最近保存记录，fallback 到 Notion 搜索
+        resolve(fallbackToDefaultPage(token).then(function(id) {
+          return { id: id, type: 'page' };
+        }));
+      }
+    });
   });
 }
 
@@ -653,19 +687,23 @@ function fallbackToDefaultPage(token) {
 // 获取用户可访问的页面列表
 // ============================================================
 function fetchNotionPages(token, query) {
-  var searchBody = {
-    page_size: 50,
-    sort: { direction: 'descending', timestamp: 'last_edited_time' },
-  };
+  var q = (query && query.trim()) ? query.trim() : '';
 
-  if (query && query.trim()) {
-    searchBody.query = query.trim();
+  function searchOne(filterObj, sortDir) {
+    var body = { page_size: 100 };
+    if (sortDir) {
+      body.sort = { direction: sortDir, timestamp: 'last_edited_time' };
+    }
+    if (q) body.query = q;
+    if (filterObj) body.filter = filterObj;
+
+    return notionFetch('/v1/search', token, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   }
 
-  return notionFetch('/v1/search', token, {
-    method: 'POST',
-    body: JSON.stringify(searchBody),
-  }).then(function(response) {
+  function parseResults(response) {
     var results = response.results || [];
     var pages = [];
     var databases = [];
@@ -679,15 +717,79 @@ function fetchNotionPages(token, query) {
           url: item.url || '',
         });
       } else if (item.object === 'page') {
+        var parentType = (item.parent && item.parent.type) ? item.parent.type : null;
         pages.push({
           id: item.id,
           title: getPageTitle(item),
           url: item.url || '',
+          parentType: parentType,
         });
       }
     }
 
-    return { success: true, pages: pages, databases: databases };
+    // 按标题去重，避免重复保存的测试页面挤掉真正的容器页面
+    var seenTitles = {};
+    var dedupedPages = [];
+    for (var j = 0; j < pages.length; j++) {
+      var key = pages[j].title.toLowerCase();
+      if (!seenTitles[key]) {
+        seenTitles[key] = true;
+        dedupedPages.push(pages[j]);
+      }
+    }
+
+    return { pages: dedupedPages, databases: databases };
+  }
+
+  // 搜索时 query 不为空，Notion API 按相关性排序（sort 参数被忽略）
+  // 此处分两个请求查 database + page，避免一种类型挤掉另一种
+  if (q) {
+    return Promise.all([
+      searchOne({ property: 'object', value: 'database' }),
+      searchOne({ property: 'object', value: 'page' }),
+    ]).then(function(results) {
+      var dbResult = parseResults(results[0]);
+      var pageResult = parseResults(results[1]);
+
+      console.log('[NotionSnap SW] API search ("' + q + '") — databases:', dbResult.databases.length,
+                  '| pages:', pageResult.pages.length);
+      return { success: true, pages: pageResult.pages, databases: dbResult.databases };
+    }).catch(function(err) {
+      console.error('[NotionSnap] Fetch pages failed:', err);
+      return { success: false, error: err.message, pages: [], databases: [] };
+    });
+  }
+
+  // 无搜索词：数据库 + 3 种页面排序（desc/asc/默认），去重后最大化覆盖
+  return Promise.all([
+    searchOne({ property: 'object', value: 'database' }),
+    searchOne({ property: 'object', value: 'page' }, 'descending'),
+    searchOne({ property: 'object', value: 'page' }, 'ascending'),
+    searchOne({ property: 'object', value: 'page' }), // 无 sort，API 默认顺序
+  ]).then(function(results) {
+    var dbResult = parseResults(results[0]);
+    var descPages = parseResults(results[1]);
+    var ascPages = parseResults(results[2]);
+    var defaultPages = parseResults(results[3]);
+
+    // 合并三种排序结果，按标题去重
+    var seenTitles = {};
+    var mergedPages = [];
+    var allPageResults = descPages.pages.concat(ascPages.pages).concat(defaultPages.pages);
+    for (var j = 0; j < allPageResults.length; j++) {
+      var key = allPageResults[j].title.toLowerCase();
+      if (!seenTitles[key]) {
+        seenTitles[key] = true;
+        mergedPages.push(allPageResults[j]);
+      }
+    }
+
+    console.log('[NotionSnap SW] API search (no query) — databases:', dbResult.databases.length,
+                '| desc pages:', descPages.pages.length,
+                '| asc pages:', ascPages.pages.length,
+                '| default pages:', defaultPages.pages.length,
+                '| merged unique pages:', mergedPages.length);
+    return { success: true, pages: mergedPages, databases: dbResult.databases };
   }).catch(function(err) {
     console.error('[NotionSnap] Fetch pages failed:', err);
     return { success: false, error: err.message, pages: [], databases: [] };

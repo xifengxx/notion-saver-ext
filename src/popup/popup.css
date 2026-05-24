@@ -315,6 +315,32 @@ header h1 {
   flex-shrink: 0;
 }
 
+.page-type-tag {
+  font-size: 10px;
+  color: var(--placeholder-color);
+  background: var(--hover-bg);
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.page-list-item-db {
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.page-tag-workspace {
+  color: var(--accent-color);
+  background: transparent;
+  border: 1px solid var(--accent-color);
+}
+
+.page-tag-sub {
+  color: var(--placeholder-color);
+  background: transparent;
+  border: 1px solid var(--divider-color);
+}
+
 .page-title {
   font-size: 13px;
   white-space: nowrap;

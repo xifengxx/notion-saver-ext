@@ -2,9 +2,19 @@
 
 Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文章的稳定完整抓取，替代 Notion Web Clipper（不稳定）和 Copy to Notion（付费）。
 
-当前版本：**v0.4.0**
+当前版本：**v0.4.1**
 
 ## 变更日志
+
+### v0.4.1
+- 修复：图片上传 Notion API Gateway HTTP 400（POST + FormData + Authorization + Notion-Version）
+- 修复：图片上传 URL 字段兼容（upload_url / url / signed_url）
+- 修复：右键/快捷键保存 fallback 到最近保存页面（之前永远走 Notion 搜索）
+- 优化：页面搜索下拉 — 搜索时即时显示本地缓存结果，API 返回后合并去重
+- 优化：初始加载覆盖更广（3 种排序去重：desc + asc + 默认，page_size 100）
+- 优化：搜索结果按层级排序（workspace > page_id/block_id > 其他 > database_id）
+- 优化：默认下拉简洁化（最近保存 + 5 数据库 + 5 一级页面）
+- 优化：搜索模式下数据库/页面带类型标签
 
 ### v0.4.0
 - 新增：保存预设（pill 按钮一键切换目标页面，设置面板管理预设列表，最多 15 个，5 种彩色标签）
