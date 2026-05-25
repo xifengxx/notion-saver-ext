@@ -18,7 +18,8 @@ var STORE = {
   NOTIF_URL_PREFIX: 'notif_url_',
   SAVE_HISTORY_PREFIX: 'save_history_',
   SAVED_TARGETS_PREFIX: 'saved_targets_',
-  IMAGE_TASK: 'notion_image_task',
+  IMAGE_TASK_PREFIX: 'notion_image_task_',
+  IMAGE_TASK_QUEUE: 'notion_image_task_queue',
 };
 
 // SW 重启时恢复未完成的图片替换任务
@@ -441,7 +442,12 @@ function fetchDatabaseSchema(token, databaseId) {
     return schema;
   }).catch(function(err) {
     // schema 获取失败不阻塞保存，降级为无匹配
-    console.error('[NotionSnap] fetchDatabaseSchema error:', err);
+    var msg = err && err.message ? err.message : '';
+    if (msg.indexOf('is a page, not a database') >= 0) {
+      console.info('[NotionSnap] Target is a page (not database), metadata written to body');
+    } else {
+      console.error('[NotionSnap] fetchDatabaseSchema error:', err);
+    }
     return {};
   });
 }
@@ -974,7 +980,7 @@ function startBackgroundImageReplacement(token, pageId, botId, blocks) {
     };
     saveImageTaskState(task);
 
-    processImageReplacementBatch(token, task);
+    enqueueImageTask(token, task);
   }).catch(function(err) {
     console.error('[NotionSnap] fetchPageChildren failed for image replacement:', err && err.message ? err.message : err);
   });
@@ -1226,34 +1232,141 @@ function appendSingleBlock(token, pageId, bodyObj) {
 
 function saveImageTaskState(task) {
   var kv = {};
-  kv[STORE.IMAGE_TASK] = task;
+  kv[STORE.IMAGE_TASK_PREFIX + task.pageId] = task;
   chrome.storage.local.set(kv);
 }
 
 function cleanupImageTask(pageId) {
-  chrome.storage.local.get([STORE.IMAGE_TASK], function(result) {
-    var task = result[STORE.IMAGE_TASK];
-    if (task && task.pageId === pageId) {
-      chrome.storage.local.remove(STORE.IMAGE_TASK);
+  chrome.storage.local.remove(STORE.IMAGE_TASK_PREFIX + pageId, function() {
+    dequeueAndProcessNext();
+  });
+}
+
+// 任务队列：相同 name 只跑一个
+function enqueueImageTask(token, task) {
+  chrome.storage.local.get([STORE.IMAGE_TASK_QUEUE], function(result) {
+    var queue = result[STORE.IMAGE_TASK_QUEUE] || [];
+    // 去重：同 pageId 只保留最新的
+    queue = queue.filter(function(e) { return e.pageId !== task.pageId; });
+    queue.push({ pageId: task.pageId, startedAt: task.startedAt });
+    var isFirst = queue.length === 1;
+
+    var kv = {};
+    kv[STORE.IMAGE_TASK_QUEUE] = queue;
+    chrome.storage.local.set(kv, function() {
+      if (isFirst) {
+        acquireAndProcess(token, task);
+      } else {
+        console.log('[NotionSnap] Phase 2 queued for page ' + task.pageId + ' (waiting, ' + queue.length + ' jobs)');
+      }
+    });
+  });
+}
+
+function acquireAndProcess(token, task) {
+  processImageReplacementBatch(token, task);
+}
+
+function dequeueAndProcessNext() {
+  chrome.storage.local.get([STORE.IMAGE_TASK_QUEUE], function(result) {
+    var queue = result[STORE.IMAGE_TASK_QUEUE] || [];
+    if (queue.length > 0) queue.shift(); // 移除当前已完成的任务
+
+    // 找到下一个有有效存储的任务
+    function tryNext() {
+      if (queue.length === 0) {
+        // 清理残留的已完成任务
+        chrome.storage.local.get(null, function(all) {
+          var keys = Object.keys(all);
+          for (var i = 0; i < keys.length; i++) {
+            if (keys[i].indexOf(STORE.IMAGE_TASK_PREFIX) === 0) {
+              var t = all[keys[i]];
+              if (!t || t.currentIndex >= t.totalImages) {
+                chrome.storage.local.remove(keys[i]);
+              }
+            }
+          }
+          chrome.storage.local.remove(STORE.IMAGE_TASK_QUEUE);
+        });
+        return;
+      }
+      var next = queue[0];
+      var taskKey = STORE.IMAGE_TASK_PREFIX + next.pageId;
+      chrome.storage.local.get([taskKey], function(r) {
+        var pendingTask = r[taskKey];
+        if (!pendingTask || pendingTask.currentIndex >= pendingTask.totalImages) {
+          chrome.storage.local.remove(taskKey);
+          queue.shift();
+          var kv2 = {};
+          kv2[STORE.IMAGE_TASK_QUEUE] = queue;
+          chrome.storage.local.set(kv2, function() { tryNext(); });
+          return;
+        }
+        if (Date.now() - pendingTask.startedAt > 3600000) {
+          chrome.storage.local.remove(taskKey);
+          queue.shift();
+          var kv3 = {};
+          kv3[STORE.IMAGE_TASK_QUEUE] = queue;
+          chrome.storage.local.set(kv3, function() { tryNext(); });
+          return;
+        }
+        var kv4 = {};
+        kv4[STORE.IMAGE_TASK_QUEUE] = queue;
+        chrome.storage.local.set(kv4, function() {
+          getValidToken().then(function(token) {
+            if (!token) {
+              chrome.storage.local.remove([STORE.IMAGE_TASK_QUEUE, taskKey]);
+              return;
+            }
+            processImageReplacementBatch(token, pendingTask);
+          });
+        });
+      });
     }
+    tryNext();
   });
 }
 
 function loadAndResumePendingImageTasks() {
-  chrome.storage.local.get([STORE.IMAGE_TASK], function(result) {
-    var task = result[STORE.IMAGE_TASK];
-    if (!task || !task.pageId || task.currentIndex >= task.totalImages) return;
-
-    if (Date.now() - task.startedAt > 3600000) {
-      chrome.storage.local.remove(STORE.IMAGE_TASK);
-      return;
+  chrome.storage.local.get(null, function(all) {
+    var keys = Object.keys(all);
+    var pendingTasks = [];
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      if (key.indexOf(STORE.IMAGE_TASK_PREFIX) === 0) {
+        var t = all[key];
+        if (!t || !t.pageId || t.currentIndex >= t.totalImages) {
+          chrome.storage.local.remove(key);
+          continue;
+        }
+        if (Date.now() - t.startedAt > 3600000) {
+          chrome.storage.local.remove(key);
+          continue;
+        }
+        pendingTasks.push(t);
+      }
     }
+    // 清理残留的 queue（SW 终止时可能不一致）
+    chrome.storage.local.remove(STORE.IMAGE_TASK_QUEUE);
 
-    console.log('[NotionSnap] Resuming image replacement: ' + task.completedImages + '/' + task.totalImages + ' done');
+    if (pendingTasks.length === 0) return;
 
-    getValidToken().then(function(token) {
-      if (!token) return;
-      processImageReplacementBatch(token, task);
+    // 按 startedAt 排序，最早的在最前面
+    pendingTasks.sort(function(a, b) { return a.startedAt - b.startedAt; });
+
+    // 重建队列
+    var queue = [];
+    for (var j = 0; j < pendingTasks.length; j++) {
+      queue.push({ pageId: pendingTasks[j].pageId, startedAt: pendingTasks[j].startedAt });
+    }
+    var kv = {};
+    kv[STORE.IMAGE_TASK_QUEUE] = queue;
+    chrome.storage.local.set(kv, function() {
+      console.log('[NotionSnap] Resuming ' + pendingTasks.length + ' pending image task(s): ' + pendingTasks[0].completedImages + '/' + pendingTasks[0].totalImages + ' done');
+      getValidToken().then(function(token) {
+        if (!token) return;
+        processImageReplacementBatch(token, pendingTasks[0]);
+      });
     });
   });
 }
