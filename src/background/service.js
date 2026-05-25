@@ -894,8 +894,17 @@ function startBackgroundImageReplacement(token, pageId, botId, blocks) {
 
   if (imageList.length === 0) return;
 
+  console.log('[NotionSnap] Phase 2 started: ' + imageList.length + ' images to replace for page ' + pageId);
+
   // 拉取页面 children 获取 block ID
   fetchPageChildren(token, pageId, null, []).then(function(allChildren) {
+    var matchedCount = 0;
+    for (var m = 0; m < imageList.length; m++) {
+      if (imageList[m].blockId) matchedCount++;
+    }
+    if (matchedCount < imageList.length) {
+      console.warn('[NotionSnap] Phase 2: matched ' + matchedCount + '/' + imageList.length + ' block IDs (some image URLs may differ)');
+    }
     for (var k = 0; k < allChildren.length; k++) {
       var child = allChildren[k];
       if (child.type === 'image' && child.image && child.image.type === 'external' && child.image.external) {
@@ -967,6 +976,9 @@ function processImageReplacementBatch(token, task) {
   task.lastUpdatedAt = Date.now();
   saveImageTaskState(task);
 
+  var shortUrl = imageInfo.externalUrl.substring(0, 80);
+  console.log('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] ' + shortUrl);
+
   // 优先尝试 external_url 导入
   importImageViaExternalUrl(token, imageInfo.externalUrl, imageInfo.filename)
     .then(function(fileUploadId) {
@@ -983,6 +995,7 @@ function processImageReplacementBatch(token, task) {
     .then(function() {
       imageInfo.status = 'done';
       task.completedImages++;
+      console.log('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] done (external_url)');
       return advance();
     })
     .catch(function(err) {
@@ -1000,6 +1013,8 @@ function processImageReplacementBatch(token, task) {
         return processImageReplacementBatch(token, task);
       });
     }
+    var elapsed = ((Date.now() - task.startedAt) / 1000).toFixed(1);
+    console.log('[NotionSnap] Phase 2 complete: ' + task.completedImages + ' done, ' + task.failedImages + ' failed, ' + elapsed + 's');
     cleanupImageTask(task.pageId);
     return Promise.resolve();
   }
@@ -1025,9 +1040,12 @@ function downloadAndUploadFallback(token, task, idx) {
   }).then(function() {
     imageInfo.status = 'done';
     task.completedImages++;
+    var idx = task.currentIndex;
+    console.log('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] done (binary fallback)');
     return Promise.resolve();
   }).catch(function(err) {
-    console.error('[NotionSnap] Binary upload fallback also failed:', err && err.message ? err.message : err);
+    var idx = task.currentIndex;
+    console.error('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] FAILED:', err && err.message ? err.message : err);
     imageInfo.status = 'failed';
     task.failedImages++;
     return Promise.resolve();
