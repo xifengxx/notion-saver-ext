@@ -898,25 +898,63 @@ function startBackgroundImageReplacement(token, pageId, botId, blocks) {
 
   // 拉取页面 children 获取 block ID
   fetchPageChildren(token, pageId, null, []).then(function(allChildren) {
-    var matchedCount = 0;
-    for (var m = 0; m < imageList.length; m++) {
-      if (imageList[m].blockId) matchedCount++;
-    }
-    if (matchedCount < imageList.length) {
-      console.warn('[NotionSnap] Phase 2: matched ' + matchedCount + '/' + imageList.length + ' block IDs (some image URLs may differ)');
-    }
+    // 收集所有 image children
+    var imageChildren = [];
     for (var k = 0; k < allChildren.length; k++) {
       var child = allChildren[k];
       if (child.type === 'image' && child.image && child.image.type === 'external' && child.image.external) {
-        var childUrl = child.image.external.url;
-        for (var m = 0; m < imageList.length; m++) {
-          if (imageList[m].externalUrl === childUrl && !imageList[m].blockId) {
-            imageList[m].blockId = child.id;
-            imageList[m].childIndex = k;
-            break;
-          }
+        imageChildren.push({ id: child.id, url: child.image.external.url, idx: k });
+      }
+    }
+
+    // Pass 1: 精确 URL 匹配
+    for (var ci = 0; ci < imageChildren.length; ci++) {
+      for (var m = 0; m < imageList.length; m++) {
+        if (imageList[m].blockId) continue;
+        if (imageList[m].externalUrl === imageChildren[ci].url) {
+          imageList[m].blockId = imageChildren[ci].id;
+          imageList[m].childIndex = imageChildren[ci].idx;
+          break;
         }
       }
+    }
+
+    // Pass 2: URL 解码后比较（处理编码差异）
+    for (var ci2 = 0; ci2 < imageChildren.length; ci2++) {
+      for (var m2 = 0; m2 < imageList.length; m2++) {
+        if (imageList[m2].blockId) continue;
+        try {
+          if (decodeURIComponent(imageList[m2].externalUrl) === decodeURIComponent(imageChildren[ci2].url)) {
+            imageList[m2].blockId = imageChildren[ci2].id;
+            imageList[m2].childIndex = imageChildren[ci2].idx;
+            break;
+          }
+        } catch (e) { /* skip malformed URLs */ }
+      }
+    }
+
+    // Pass 3: 按位置回退匹配（第 n 个未匹配 image = 第 n 个未匹配 child）
+    var unmatchedImgs = [];
+    var unmatchedCh = [];
+    for (var mi = 0; mi < imageList.length; mi++) {
+      if (!imageList[mi].blockId) unmatchedImgs.push(mi);
+    }
+    for (var ci3 = 0; ci3 < imageChildren.length; ci3++) {
+      var used = false;
+      for (var m3 = 0; m3 < imageList.length; m3++) {
+        if (imageList[m3].blockId === imageChildren[ci3].id) { used = true; break; }
+      }
+      if (!used) unmatchedCh.push(ci3);
+    }
+    var posCount = Math.min(unmatchedImgs.length, unmatchedCh.length);
+    for (var p = 0; p < posCount; p++) {
+      imageList[unmatchedImgs[p]].blockId = imageChildren[unmatchedCh[p]].id;
+      imageList[unmatchedImgs[p]].childIndex = imageChildren[unmatchedCh[p]].idx;
+    }
+
+    var matchedCount = imageList.length - unmatchedImgs.length + posCount;
+    if (matchedCount < imageList.length) {
+      console.warn('[NotionSnap] Phase 2: matched ' + matchedCount + '/' + imageList.length + ' block IDs');
     }
 
     // 从下往上处理，避免删除导致位置偏移
@@ -979,18 +1017,30 @@ function processImageReplacementBatch(token, task) {
   var shortUrl = imageInfo.externalUrl.substring(0, 80);
   console.log('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] ' + shortUrl);
 
-  // 优先尝试 external_url 导入
-  importImageViaExternalUrl(token, imageInfo.externalUrl, imageInfo.filename)
-    .then(function(fileUploadId) {
-      imageInfo.fileUploadId = fileUploadId;
-      return pollFileUploadStatus(token, fileUploadId, 10);
-    })
-    .then(function(fileUploadObj) {
-      if (fileUploadObj.status === 'uploaded') {
-        imageInfo.notionFileId = fileUploadObj.id;
-        return replaceImageBlock(token, task, idx);
-      }
-      throw new Error('File upload status: ' + (fileUploadObj.status || 'unknown'));
+  // 恢复时如果上次已拿到 notionFileId，跳过上传直接替换
+  var uploadPromise;
+  if (imageInfo.notionFileId) {
+    uploadPromise = Promise.resolve();
+  } else {
+    uploadPromise = importImageViaExternalUrl(token, imageInfo.externalUrl, imageInfo.filename)
+      .then(function(fileUploadId) {
+        imageInfo.fileUploadId = fileUploadId;
+        saveImageTaskState(task);
+        return pollFileUploadStatus(token, fileUploadId, 10);
+      })
+      .then(function(fileUploadObj) {
+        if (fileUploadObj.status === 'uploaded') {
+          imageInfo.notionFileId = fileUploadObj.id;
+          saveImageTaskState(task);
+          return;
+        }
+        throw new Error('File upload status: ' + (fileUploadObj.status || 'unknown'));
+      });
+  }
+
+  uploadPromise
+    .then(function() {
+      return replaceImageBlock(token, task, idx);
     })
     .then(function() {
       imageInfo.status = 'done';
@@ -999,8 +1049,11 @@ function processImageReplacementBatch(token, task) {
       return advance();
     })
     .catch(function(err) {
-      // external_url 失败 → 尝试二进制回退
-      console.warn('[NotionSnap] external_url import failed, trying binary upload: ' + (err && err.message ? err.message : err));
+      // 上传或替换失败 → 尝试二进制回退
+      console.warn('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] retrying via binary: ' + (err && err.message ? err.message : err));
+      imageInfo.notionFileId = null;
+      imageInfo.fileUploadId = null;
+      imageInfo.blockDeleted = false;
       return downloadAndUploadFallback(token, task, idx);
     });
 
@@ -1120,7 +1173,16 @@ function replaceImageBlock(token, task, idx) {
     }
   }
 
-  return deleteBlock(token, imageInfo.blockId).then(function() {
+  // 如果已标记 blockDeleted，跳过 delete（SW 恢复时 block 可能已在上一轮被删除）
+  var deletePromise = imageInfo.blockDeleted
+    ? Promise.resolve()
+    : deleteBlock(token, imageInfo.blockId).then(function() {
+        imageInfo.blockDeleted = true;
+        task.lastUpdatedAt = Date.now();
+        return saveImageTaskState(task);
+      });
+
+  return deletePromise.then(function() {
     return delay(RATE_LIMIT_DELAY).then(function() {
       var newBlock = {
         object: 'block',
@@ -1148,7 +1210,8 @@ function deleteBlock(token, blockId) {
   return notionFetch('/v1/blocks/' + blockId.replace(/-/g, ''), token, {
     method: 'DELETE',
   }).catch(function(err) {
-    if (err.message && err.message.indexOf('not find') >= 0) return;
+    var msg = err.message || '';
+    if (msg.indexOf('not find') >= 0 || msg.indexOf('archived') >= 0) return;
     throw err;
   });
 }
