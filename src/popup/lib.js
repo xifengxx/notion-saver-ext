@@ -29,6 +29,10 @@ export function pageCacheKey(botId) {
   return 'page_cache_' + (botId || 'default');
 }
 
+export function savedTargetsKey(botId) {
+  return 'saved_targets_' + (botId || 'default');
+}
+
 export function escapeHtml(text) {
   var div = document.createElement('div');
   div.textContent = text;

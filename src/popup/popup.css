@@ -281,12 +281,11 @@ header h1 {
   max-height: 300px;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 /* 页面列表 */
 .page-list {
-  max-height: 180px;
-  overflow-y: auto;
   background: var(--list-bg);
   display: flex;
   flex-direction: column;

@@ -77,7 +77,7 @@ export function getPillColor(index) {
   return { bg: newBg, text: textColor };
 }
 
-export function renderPageList(databases, pages, recent, pageListEl, onSelect, isSearch) {
+export function renderPageList(databases, pages, recent, pageListEl, onSelect, isSearch, visibleCount) {
   var html = '';
   recent = recent || [];
 
@@ -90,44 +90,43 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
     } else if (item.parentType === 'page_id' || item.parentType === 'block_id') {
       tag = '<span class="page-type-tag page-tag-sub">子页面</span>';
     }
-    return '<div class="page-list-item" data-id="' + item.id + '"' + (item.isDb ? ' data-is-db="1"' : '') + '>' +
+    var displayTitle = item.title || 'Untitled';
+    var itemClass = 'page-list-item' + (item.isDb ? ' page-list-item-db' : '');
+    return '<div class="' + itemClass + '" data-id="' + item.id + '"' + (item.isDb ? ' data-is-db="1"' : '') + '>' +
       '<span class="page-icon"></span>' +
-      '<span class="page-title">' + escapeHtml(item.title) + '</span>' +
+      '<span class="page-title">' + escapeHtml(displayTitle) + '</span>' +
       tag + '</div>';
   }
 
-  // === 搜索模式：数据库 + 页面混合平铺，按层级排序 ===
-  // 页面层级权重：workspace(0) > page_id(1) > 其他(2) > database_id(3)
+  // === 搜索模式：数据库 + 页面混合，保持传入顺序（按精准度），最多 30 条 ===
+  // 调用方负责排序：数据库优先 → workspace 页面 → 其余页面
   if (isSearch) {
-    // 页面按层级排序
-    var sortedPages = pages.slice().sort(function(a, b) {
-      var wa = parentTypeWeight(a.parentType);
-      var wb = parentTypeWeight(b.parentType);
-      return wa - wb;
-    });
+    var MAX_SEARCH = 30;
+    var shown = 0;
 
-    // 数据库（带类型标签）
-    for (var i = 0; i < databases.length; i++) {
+    // 数据库优先（带类型标签）
+    for (var i = 0; i < databases.length && shown < MAX_SEARCH; i++) {
       html += '<div class="page-list-item page-list-item-db" data-id="' + databases[i].id + '" data-is-db="1">' +
         '<span class="page-icon"></span>' +
         '<span class="page-title">' + escapeHtml(databases[i].title) + '</span>' +
         '<span class="page-type-tag">数据库</span></div>';
+      shown++;
     }
-    // 页面（按层级：一级 > 二级 > 三级文章）
-    for (var i = 0; i < sortedPages.length; i++) {
+    // 页面保持传入顺序（精准度），只对 workspace 页面加标签
+    // page_id/block_id/database_id 不加标签—子页面和数据库文章无法通过 parentType 区分
+    for (var i = 0; i < pages.length && shown < MAX_SEARCH; i++) {
       var tag = '';
-      if (sortedPages[i].parentType === 'workspace') {
+      if (pages[i].parentType === 'workspace') {
         tag = '<span class="page-type-tag page-tag-workspace">页面</span>';
-      } else if (sortedPages[i].parentType === 'page_id') {
-        tag = '<span class="page-type-tag page-tag-sub">子页面</span>';
       }
-      html += '<div class="page-list-item" data-id="' + sortedPages[i].id + '">' +
+      html += '<div class="page-list-item" data-id="' + pages[i].id + '">' +
         '<span class="page-icon"></span>' +
-        '<span class="page-title">' + escapeHtml(sortedPages[i].title) + '</span>' +
+        '<span class="page-title">' + escapeHtml(pages[i].title) + '</span>' +
         tag + '</div>';
+      shown++;
     }
 
-    if (databases.length === 0 && sortedPages.length === 0) {
+    if (databases.length === 0 && pages.length === 0) {
       html = '<div class="page-list-empty">未找到匹配的页面或数据库</div>';
     }
 
@@ -138,7 +137,7 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
 
   // === 非搜索模式：两类展示 ===
   // 第一类：最近保存（最多 5 个）
-  // 第二类：数据库 + 页面合并（10 个默认，可展开到 20）
+  // 第二类：数据库 + 页面合并，滚动加载（初始 20 条，滚动到底加载更多）
 
   // 收集最近保存的 id 用于去重
   var recentIds = {};
@@ -159,7 +158,14 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
   }
 
   // 合并数据库和页面，排除已在最近保存中的
+  // 顺序：数据库优先 → 页面按层级（workspace → page_id/block_id → 其他 → database_id 文章）
   var combined = [];
+  // 数据库排前面
+  for (var i = 0; i < databases.length; i++) {
+    if (!recentIds[databases[i].id]) {
+      combined.push({ id: databases[i].id, title: databases[i].title, isDb: true, parentType: null });
+    }
+  }
   // 页面按层级排序
   var sortedPages = pages.slice().sort(function(a, b) {
     return parentTypeWeight(a.parentType) - parentTypeWeight(b.parentType);
@@ -169,33 +175,17 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
       combined.push({ id: sortedPages[i].id, title: sortedPages[i].title, isDb: false, parentType: sortedPages[i].parentType });
     }
   }
-  // 数据库排后面
-  for (var i = 0; i < databases.length; i++) {
-    if (!recentIds[databases[i].id]) {
-      combined.push({ id: databases[i].id, title: databases[i].title, isDb: true, parentType: null });
-    }
-  }
 
   if (combined.length > 0) {
-    var MAX_SHOW = 10;
-    var MAX_TOTAL = 20;
+    var showCount = Math.min(visibleCount || 20, 30);
     html += '<div class="page-list-section"><div class="page-list-label">所有页面</div>';
 
-    for (var i = 0; i < combined.length && i < MAX_SHOW; i++) {
+    for (var i = 0; i < combined.length && i < showCount; i++) {
       html += buildCombinedItem(combined[i]);
     }
 
-    if (combined.length > MAX_SHOW) {
-      var remaining = combined.length - MAX_SHOW;
-      html += '<div class="page-list-more-toggle" style="cursor:pointer;padding:2px 8px;font-size:10px;color:var(--placeholder-color)">还有 ' + remaining + ' 个 &#9662;</div>';
-      html += '<div class="page-list-more-items hidden">';
-      for (var i = MAX_SHOW; i < combined.length && i < MAX_TOTAL; i++) {
-        html += buildCombinedItem(combined[i]);
-      }
-      if (combined.length > MAX_TOTAL) {
-        html += '<div class="page-list-more">还有 ' + (combined.length - MAX_TOTAL) + ' 个，请搜索查找</div>';
-      }
-      html += '</div>';
+    if (combined.length > showCount && showCount < 30) {
+      html += '<div class="page-list-sentinel" style="height:1px"></div>';
     }
 
     html += '</div>';
@@ -206,24 +196,6 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
   }
 
   pageListEl.innerHTML = html;
-
-  // 展开/折叠
-  var moreToggle = pageListEl.querySelector('.page-list-more-toggle');
-  if (moreToggle) {
-    moreToggle.addEventListener('click', function() {
-      var moreItems = pageListEl.querySelector('.page-list-more-items');
-      if (moreItems) {
-        var isHidden = moreItems.classList.contains('hidden');
-        if (isHidden) {
-          moreItems.classList.remove('hidden');
-          moreToggle.innerHTML = '收起 &#9652;';
-        } else {
-          moreItems.classList.add('hidden');
-          moreToggle.innerHTML = '还有 ' + remaining + ' 个 &#9662;';
-        }
-      }
-    });
-  }
 
   bindPageItemClicks(pageListEl, onSelect);
 }

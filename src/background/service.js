@@ -17,6 +17,7 @@ var STORE = {
   RECENT_PAGES_PREFIX: 'recent_pages_',
   NOTIF_URL_PREFIX: 'notif_url_',
   SAVE_HISTORY_PREFIX: 'save_history_',
+  SAVED_TARGETS_PREFIX: 'saved_targets_',
 };
 
 // 安装/更新时创建右键菜单
@@ -162,6 +163,32 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
         console.error('[NotionSnap] fetch_pages error:', err);
         sendResponse({ success: false, error: err.message || '获取失败', pages: [], databases: [] });
       });
+    });
+    return true;
+  }
+
+  // 渐进式加载：单次 /v1/search 请求，立即返回
+  if (message.action === 'fetch_pages_chunk') {
+    getValidToken().then(function(token) {
+      if (!token) {
+        sendResponse({ success: false, error: '未登录', pages: [], databases: [] });
+        return;
+      }
+      var q = message.query || '';
+      var filterObj = message.filter ? { property: 'object', value: message.filter } : null;
+      var body = { page_size: 100 };
+      if (q) body.query = q;
+      if (filterObj) body.filter = filterObj;
+      if (message.sort) body.sort = { direction: message.sort, timestamp: 'last_edited_time' };
+
+      notionFetch('/v1/search', token, { method: 'POST', body: JSON.stringify(body) })
+        .then(function(response) {
+          var data = parseSearchResponse(response);
+          sendResponse({ success: true, pages: data.pages, databases: data.databases });
+        })
+        .catch(function(err) {
+          sendResponse({ success: false, error: err.message, pages: [], databases: [] });
+        });
     });
     return true;
   }
@@ -874,6 +901,47 @@ function fallbackToDefaultPage(token) {
 }
 
 // ============================================================
+// 解析 /v1/search 响应，提取 pages 和 databases
+// ============================================================
+function parseSearchResponse(response) {
+  var results = response.results || [];
+  var pages = [];
+  var databases = [];
+
+  for (var i = 0; i < results.length; i++) {
+    var item = results[i];
+    if (item.object === 'database') {
+      databases.push({
+        id: item.id,
+        title: (item.title && item.title.length > 0) ? item.title.map(function(t) { return t.plain_text; }).join('') : 'Untitled',
+        url: item.url || '',
+      });
+    } else if (item.object === 'page') {
+      var parentType = (item.parent && item.parent.type) ? item.parent.type : null;
+      pages.push({
+        id: item.id,
+        title: getPageTitle(item),
+        url: item.url || '',
+        parentType: parentType,
+      });
+    }
+  }
+
+  // 按标题去重
+  var seenTitles = {};
+  var dedupedPages = [];
+  for (var j = 0; j < pages.length; j++) {
+    var key = pages[j].title.toLowerCase();
+    if (!seenTitles[key]) {
+      seenTitles[key] = true;
+      dedupedPages.push(pages[j]);
+    }
+  }
+
+  return { pages: dedupedPages, databases: databases };
+}
+
+// ============================================================
 // 获取用户可访问的页面列表
 // ============================================================
 function fetchNotionPages(token, query) {
@@ -893,44 +961,6 @@ function fetchNotionPages(token, query) {
     });
   }
 
-  function parseResults(response) {
-    var results = response.results || [];
-    var pages = [];
-    var databases = [];
-
-    for (var i = 0; i < results.length; i++) {
-      var item = results[i];
-      if (item.object === 'database') {
-        databases.push({
-          id: item.id,
-          title: item.title ? item.title.map(function(t) { return t.plain_text; }).join('') : 'Untitled',
-          url: item.url || '',
-        });
-      } else if (item.object === 'page') {
-        var parentType = (item.parent && item.parent.type) ? item.parent.type : null;
-        pages.push({
-          id: item.id,
-          title: getPageTitle(item),
-          url: item.url || '',
-          parentType: parentType,
-        });
-      }
-    }
-
-    // 按标题去重，避免重复保存的测试页面挤掉真正的容器页面
-    var seenTitles = {};
-    var dedupedPages = [];
-    for (var j = 0; j < pages.length; j++) {
-      var key = pages[j].title.toLowerCase();
-      if (!seenTitles[key]) {
-        seenTitles[key] = true;
-        dedupedPages.push(pages[j]);
-      }
-    }
-
-    return { pages: dedupedPages, databases: databases };
-  }
-
   // 搜索时 query 不为空，Notion API 按相关性排序（sort 参数被忽略）
   // 此处分两个请求查 database + page，避免一种类型挤掉另一种
   if (q) {
@@ -938,8 +968,8 @@ function fetchNotionPages(token, query) {
       searchOne({ property: 'object', value: 'database' }),
       searchOne({ property: 'object', value: 'page' }),
     ]).then(function(results) {
-      var dbResult = parseResults(results[0]);
-      var pageResult = parseResults(results[1]);
+      var dbResult = parseSearchResponse(results[0]);
+      var pageResult = parseSearchResponse(results[1]);
 
       console.log('[NotionSnap SW] API search ("' + q + '") — databases:', dbResult.databases.length,
                   '| pages:', pageResult.pages.length);
@@ -957,10 +987,10 @@ function fetchNotionPages(token, query) {
     searchOne({ property: 'object', value: 'page' }, 'ascending'),
     searchOne({ property: 'object', value: 'page' }), // 无 sort，API 默认顺序
   ]).then(function(results) {
-    var dbResult = parseResults(results[0]);
-    var descPages = parseResults(results[1]);
-    var ascPages = parseResults(results[2]);
-    var defaultPages = parseResults(results[3]);
+    var dbResult = parseSearchResponse(results[0]);
+    var descPages = parseSearchResponse(results[1]);
+    var ascPages = parseSearchResponse(results[2]);
+    var defaultPages = parseSearchResponse(results[3]);
 
     // 合并三种排序结果，按标题去重
     var seenTitles = {};
@@ -1114,6 +1144,22 @@ function recentPagesKey(botId) {
 
 function saveHistoryKey(botId) {
   return STORE.SAVE_HISTORY_PREFIX + (botId || 'default');
+}
+
+function savedTargetsKey(botId) {
+  return STORE.SAVED_TARGETS_PREFIX + (botId || 'default');
+}
+
+function addToSavedTargets(botId, id, title, type) {
+  if (!id || !title || !botId) return;
+  var key = savedTargetsKey(botId);
+  chrome.storage.local.get([key], function(result) {
+    var list = result[key] || [];
+    list = list.filter(function(t) { return t.id !== id; });
+    list.unshift({ id: id, title: title, type: type || 'page', parentType: null });
+    if (list.length > 200) list = list.slice(0, 200);
+    chrome.storage.local.set({ [key]: list });
+  });
 }
 
 function recordHistory(data, saveResult, targetPageName, botId) {
@@ -1271,15 +1317,15 @@ function saveCurrentPage(tab) {
         var rpKey = recentPagesKey(botId);
         chrome.storage.local.get([rpKey], function(rpResult) {
           var recentPages = rpResult[rpKey] || [];
-          var parentId = recentPages.length > 0 ? recentPages[0].id : null;
-          saveParams = { botId: botId, parentId: parentId, extractedData: data };
+          var targetInfo = recentPages.length > 0 ? recentPages[0] : null;
+          saveParams = { botId: botId, targetInfo: targetInfo, extractedData: data };
           resolve(saveParams);
         });
       });
     });
   }).then(function(params) {
     if (!params) return;
-    return saveToNotion(params.extractedData, params.parentId, params.botId);
+    return saveToNotion(params.extractedData, params.targetInfo ? params.targetInfo.id : null, params.botId);
   }).then(function(result) {
     if (!result) return;
     if (result.success) {
@@ -1287,7 +1333,12 @@ function saveCurrentPage(tab) {
       clearBadgeAfter(5000);
       showPageToast(tab.id, 'success', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
       showSaveNotification('保存成功', result.blocksCount + ' 个 blocks 已同步到 Notion', result.pageUrl);
-      if (saveParams) recordHistory(saveParams.extractedData, result, '', saveParams.botId);
+      if (saveParams) {
+        recordHistory(saveParams.extractedData, result, '', saveParams.botId);
+        if (saveParams.targetInfo) {
+          addToSavedTargets(saveParams.botId, saveParams.targetInfo.id, saveParams.targetInfo.title, saveParams.targetInfo.type);
+        }
+      }
     } else {
       showBadge('!', '#ef4444');
       clearBadgeAfter(5000);

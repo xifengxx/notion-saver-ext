@@ -1,5 +1,5 @@
 // Popup UI 逻辑 — OAuth 多空间版本
-import { STORE, recentPagesKey, escapeHtml, presetsKey, saveHistoryKey, pageCacheKey } from './lib.js';
+import { STORE, recentPagesKey, escapeHtml, presetsKey, saveHistoryKey, pageCacheKey, savedTargetsKey } from './lib.js';
 import { renderPageList, renderSettingsWorkspaceList, renderPresetsRow, renderHistoryList, renderHistoryEmpty, getPillColor } from './render.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -59,7 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
   var activePresetId = null;
   var saveHistory = [];
   var selectedTargetType = 'page';
+  var savedTargets = [];
   var pageDataReady = false;
+  var pageVisibleCount = 20;
+  var scrollLoadHandler = null;
+  var dropdownSelectionMade = false;
 
   // 监听 storage 变化
   chrome.storage.onChanged.addListener(function(changes) {
@@ -176,6 +180,8 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelector('.popup').classList.add('dropdown-active');
     }
     clearTimeout(searchTimeout);
+    // 输入变化时立即滚回顶部
+    pagePickerDropdown.scrollTop = 0;
     searchTimeout = setTimeout(() => {
       filterPages(pageSearch.value.trim());
     }, 300);
@@ -490,6 +496,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     var cacheKey = pageCacheKey(currentWorkspaceBotId);
 
+    loadSavedTargets();
+
     // 1. 先从缓存读取，立即可用
     chrome.storage.local.get([cacheKey], function(result) {
       var cache = result[cacheKey];
@@ -513,40 +521,59 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function fetchAndCachePages(cacheKey, silent) {
-    chrome.runtime.sendMessage({ action: 'fetch_pages', query: '' }, function(result) {
-      if (chrome.runtime.lastError) {
-        if (!silent) pageList.innerHTML = '<div class="page-list-empty">连接失败</div>';
-        return;
-      }
-      if (result && result.success) {
-        var databases = result.databases || [];
-        var pages = result.pages || [];
-        databases.sort(function(a, b) { return a.title.localeCompare(b.title); });
-        pages.sort(function(a, b) { return a.title.localeCompare(b.title); });
+    var chunksDone = 0;
+    var totalChunks = 4;
+    var mergedDb = [];
+    var mergedPg = [];
+    var seenDb = {};
+    var seenPg = {};
 
-        // 更新内存
-        allDatabases = databases;
-        allPages = pages;
+    function handleChunk(result) {
+      chunksDone++;
+
+      if (result && result.success) {
+        var dbs = result.databases || [];
+        for (var i = 0; i < dbs.length; i++) {
+          if (!seenDb[dbs[i].id]) {
+            seenDb[dbs[i].id] = true;
+            mergedDb.push(dbs[i]);
+          }
+        }
+        var pgs = result.pages || [];
+        for (var j = 0; j < pgs.length; j++) {
+          if (!seenPg[pgs[j].id]) {
+            seenPg[pgs[j].id] = true;
+            mergedPg.push(pgs[j]);
+          }
+        }
+
+        allDatabases = mergedDb.slice();
+        allPages = mergedPg.slice();
+        allDatabases.sort(function(a, b) { return a.title.localeCompare(b.title); });
+        allPages.sort(function(a, b) { return a.title.localeCompare(b.title); });
         pageDataReady = true;
 
-        // 写入缓存
-        var kv = {};
-        kv[cacheKey] = { databases: databases, pages: pages, timestamp: Date.now() };
-        chrome.storage.local.set(kv);
-
-        // 静默刷新时只在页面列表已展开的情况下更新渲染，避免干扰用户操作
         if (!silent) {
+          pageVisibleCount = 20;
           loadRecentPages();
-        } else {
-          // 后台刷新：更新内存数据，下拉框下次打开时自动使用新数据
-          recentPages = recentPages || [];
-        }
-      } else {
-        if (!silent) {
-          pageList.innerHTML = '<div class="page-list-empty">' + escapeHtml(result ? result.error : '加载失败') + '</div>';
         }
       }
-    });
+
+      if (chunksDone >= totalChunks) {
+        if (pageDataReady) {
+          var kv = {};
+          kv[cacheKey] = { databases: allDatabases, pages: allPages, timestamp: Date.now() };
+          chrome.storage.local.set(kv);
+        } else if (!silent) {
+          pageList.innerHTML = '<div class="page-list-empty">连接失败</div>';
+        }
+      }
+    }
+
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'database' }, handleChunk);
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page', sort: 'descending' }, handleChunk);
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page', sort: 'ascending' }, handleChunk);
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page' }, handleChunk);
   }
 
   // 渲染"更多"元信息字段
@@ -625,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
     var key = recentPagesKey(currentWorkspaceBotId);
     chrome.storage.local.get([key], function(result) {
       recentPages = result[key] || [];
-      renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect);
+      renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect, false, pageVisibleCount);
 
       // 自动选中上次保存的页面/数据库作为默认目标
       if (recentPages.length > 0 && !targetPage.value) {
@@ -635,10 +662,45 @@ document.addEventListener('DOMContentLoaded', () => {
         pageSearch.classList.add('has-value');
         selectedTargetType = last.type || 'page';
       }
+
+      setupScrollLoading();
     });
   }
 
   // 保存一个位置到最近列表
+  function setupScrollLoading() {
+    // 先移除旧 listener，防止 innerHTML 替换触发递归 scroll 事件
+    if (scrollLoadHandler) {
+      pagePickerDropdown.removeEventListener('scroll', scrollLoadHandler);
+      scrollLoadHandler = null;
+    }
+
+    var sentinel = pageList.querySelector('.page-list-sentinel');
+    if (!sentinel) return;
+
+    var loadingMore = false;
+
+    scrollLoadHandler = function() {
+      // 搜索模式下不触发，防止重入
+      if (pageSearch.value.trim() || loadingMore) return;
+
+      var dd = pagePickerDropdown;
+      if (dd.scrollTop + dd.clientHeight >= dd.scrollHeight - 50) {
+        loadingMore = true;
+        // 先移除监听器，再渲染（渲染可能触发 scroll 事件）
+        pagePickerDropdown.removeEventListener('scroll', scrollLoadHandler);
+        scrollLoadHandler = null;
+
+        pageVisibleCount = Math.min(pageVisibleCount + 20, 30);
+        renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect, false, pageVisibleCount);
+        loadingMore = false;
+        setupScrollLoading();
+      }
+    };
+
+    pagePickerDropdown.addEventListener('scroll', scrollLoadHandler);
+  }
+
   function saveRecentPage(id, title, type) {
     if (!id || !currentWorkspaceBotId) return;
     var key = recentPagesKey(currentWorkspaceBotId);
@@ -655,8 +717,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function loadSavedTargets() {
+    if (!currentWorkspaceBotId) return;
+    var key = savedTargetsKey(currentWorkspaceBotId);
+    chrome.storage.local.get([key], function(result) {
+      savedTargets = result[key] || [];
+    });
+  }
+
+  function addSavedTarget(id, title, type, parentType) {
+    if (!id || !title || !currentWorkspaceBotId) return;
+    var key = savedTargetsKey(currentWorkspaceBotId);
+    // 去重
+    savedTargets = savedTargets.filter(function(t) { return t.id !== id; });
+    savedTargets.unshift({ id: id, title: title, type: type || 'page', parentType: parentType || null });
+    // 最多保留 200 个
+    if (savedTargets.length > 200) savedTargets = savedTargets.slice(0, 200);
+    chrome.storage.local.set({ [key]: savedTargets });
+  }
+
   function openDropdown() {
     dropdownOpen = true;
+    dropdownSelectionMade = false;
+    pageVisibleCount = 20;
     pagePickerDropdown.classList.remove('hidden');
     document.querySelector('.popup').classList.add('dropdown-active');
     var selectedTitle = targetPage.value ? pageSearch.value : '';
@@ -668,15 +751,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function closeDropdown() {
     dropdownOpen = false;
+    if (scrollLoadHandler) {
+      pagePickerDropdown.removeEventListener('scroll', scrollLoadHandler);
+      scrollLoadHandler = null;
+    }
     pagePickerDropdown.classList.add('hidden');
     document.querySelector('.popup').classList.remove('dropdown-active');
-    if (targetPage.value && pageSearch.value === '') {
-      var selectedTitle = pageSearch.placeholder;
-      if (selectedTitle && selectedTitle !== '选择或搜索目标页面...') {
-        pageSearch.value = selectedTitle;
-        pageSearch.classList.add('has-value');
+
+    if (targetPage.value) {
+      if (!dropdownSelectionMade) {
+        // 用户没选任何项目 — 清除搜索关键词，恢复之前保存的目标标题
+        var savedTitle = pageSearch.placeholder;
+        if (savedTitle && savedTitle !== '选择或搜索目标页面...') {
+          pageSearch.value = savedTitle;
+        } else {
+          pageSearch.value = '';
+        }
       }
-    } else if (!targetPage.value) {
+      // 如果选中了项目，pageSearch.value 已在 onPageSelect 中设置为新标题，保留即可
+      pageSearch.classList.add('has-value');
+    } else {
       pageSearch.value = '';
       pageSearch.placeholder = '选择或搜索目标页面...';
       pageSearch.classList.remove('has-value');
@@ -690,21 +784,77 @@ document.addEventListener('DOMContentLoaded', () => {
         pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
         return;
       }
-      renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect);
+      pageVisibleCount = 20;
+      renderPageList(allDatabases, allPages, recentPages, pageList, onPageSelect, false, pageVisibleCount);
+      setupScrollLoading();
       return;
     }
 
     var q = query.toLowerCase();
     var filteredDb = allDatabases.filter(function(d) { return d.title.toLowerCase().indexOf(q) >= 0; });
-    var filteredPages = allPages.filter(function(p) { return p.title.toLowerCase().indexOf(q) >= 0; });
+    var allFilteredPages = allPages.filter(function(p) { return p.title.toLowerCase().indexOf(q) >= 0; });
+
+    // 搜索永久保存目标（用户保存过的页面，不受 API 100 条限制影响）
+    var savedDb = [];
+    var savedPgTop = [];
+    var savedPgRest = [];
+    for (var i = 0; i < savedTargets.length; i++) {
+      var t = savedTargets[i];
+      if (t.title.toLowerCase().indexOf(q) >= 0) {
+        if (t.type === 'database') {
+          savedDb.push({ id: t.id, title: t.title });
+        } else if (t.parentType === 'workspace') {
+          savedPgTop.push({ id: t.id, title: t.title, parentType: 'workspace' });
+        } else {
+          savedPgRest.push({ id: t.id, title: t.title, parentType: t.parentType || null });
+        }
+      }
+    }
+
+    // 去重合并：永久目标优先 → 缓存补充
+    var seenDb = {};
+    var mergedDb = [];
+    for (var i = 0; i < savedDb.length; i++) {
+      if (!seenDb[savedDb[i].id]) { seenDb[savedDb[i].id] = true; mergedDb.push(savedDb[i]); }
+    }
+    for (var i = 0; i < filteredDb.length; i++) {
+      if (!seenDb[filteredDb[i].id]) { seenDb[filteredDb[i].id] = true; mergedDb.push(filteredDb[i]); }
+    }
+
+    var seenPg = {};
+    var topPages = [];
+    var restPages = [];
+    // 永久目标 workspace 页面最优先
+    for (var i = 0; i < savedPgTop.length; i++) {
+      if (!seenPg[savedPgTop[i].id]) { seenPg[savedPgTop[i].id] = true; topPages.push(savedPgTop[i]); }
+    }
+    // 缓存中 workspace 页面
+    for (var i = 0; i < allFilteredPages.length; i++) {
+      if (!seenPg[allFilteredPages[i].id] && allFilteredPages[i].parentType === 'workspace') {
+        seenPg[allFilteredPages[i].id] = true;
+        topPages.push(allFilteredPages[i]);
+      }
+    }
+    // 永久目标其他页面
+    for (var i = 0; i < savedPgRest.length; i++) {
+      if (!seenPg[savedPgRest[i].id]) { seenPg[savedPgRest[i].id] = true; restPages.push(savedPgRest[i]); }
+    }
+    // 缓存中其他页面
+    for (var i = 0; i < allFilteredPages.length; i++) {
+      if (!seenPg[allFilteredPages[i].id] && allFilteredPages[i].parentType !== 'workspace') {
+        seenPg[allFilteredPages[i].id] = true;
+        restPages.push(allFilteredPages[i]);
+      }
+    }
+    var filteredPages = topPages.concat(restPages);
 
     // 立即渲染本地匹配结果，不等 API 返回
-    renderPageList(filteredDb, filteredPages, [], pageList, onPageSelect, true);
+    renderPageList(mergedDb, filteredPages, [], pageList, onPageSelect, true);
 
     if (query.length >= 2) {
       chrome.runtime.sendMessage({ action: 'fetch_pages', query: query }, (result) => {
         if (result && result.success) {
-          mergeSearchResults(q, filteredDb, filteredPages, result.databases || [], result.pages || []);
+          mergeSearchResults(q, mergedDb, filteredPages, result.databases || [], result.pages || []);
         }
       });
     }
@@ -712,17 +862,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function mergeSearchResults(q, localDb, localPages, apiDb, apiPages) {
       var seenIds = {};
       var mergedDb = [];
-      var mergedPages = [];
+      var mergedPagesTop = [];
+      var mergedPagesRest = [];
 
-      // 1. 本地过滤的数据库（indexOf 匹配标题）
+      // 数据库：本地 indexOf 优先（中文子串匹配比 API 精准度可靠），API 补充
       for (var i = 0; i < localDb.length; i++) {
         if (!seenIds[localDb[i].id]) {
           seenIds[localDb[i].id] = true;
           mergedDb.push(localDb[i]);
         }
       }
-
-      // 2. API 返回的数据库（去重）
       for (var i = 0; i < apiDb.length; i++) {
         if (!seenIds[apiDb[i].id]) {
           seenIds[apiDb[i].id] = true;
@@ -730,22 +879,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      // 3. 本地过滤的所有页面（含容器和文章），indexOf 对中文部分匹配更准
+      // 页面：workspace 一级页面优先（本地 → API），其余靠后
       for (var i = 0; i < localPages.length; i++) {
         if (!seenIds[localPages[i].id]) {
           seenIds[localPages[i].id] = true;
-          mergedPages.push(localPages[i]);
+          if (localPages[i].parentType === 'workspace') {
+            mergedPagesTop.push(localPages[i]);
+          } else {
+            mergedPagesRest.push(localPages[i]);
+          }
         }
       }
-
-      // 4. API 返回的页面（去重，补充本地缓存漏掉的页面）
       for (var i = 0; i < apiPages.length; i++) {
         if (!seenIds[apiPages[i].id]) {
           seenIds[apiPages[i].id] = true;
-          mergedPages.push(apiPages[i]);
+          if (apiPages[i].parentType === 'workspace') {
+            mergedPagesTop.push(apiPages[i]);
+          } else {
+            mergedPagesRest.push(apiPages[i]);
+          }
         }
       }
 
+      var mergedPages = mergedPagesTop.concat(mergedPagesRest);
       renderPageList(mergedDb, mergedPages, [], pageList, onPageSelect, true);
     }
   }
@@ -755,6 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pageSearch.value = title;
     pageSearch.classList.add('has-value');
     selectedTargetType = isDatabase ? 'database' : 'page';
+    dropdownSelectionMade = true;
     // 手动选不同页面时取消预设选中
     if (activePresetId) {
       var preset = null;
@@ -818,6 +975,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (targetPage.value) {
           var pageTitle = pageSearch.value || targetPage.value;
           saveRecentPage(targetPage.value, pageTitle, selectedTargetType);
+
+          // 永久保存目标（下次搜索一定能找到）
+          var targetParentType = null;
+          for (var pi = 0; pi < allPages.length; pi++) {
+            if (allPages[pi].id === targetPage.value) {
+              targetParentType = allPages[pi].parentType;
+              break;
+            }
+          }
+          addSavedTarget(targetPage.value, pageTitle, selectedTargetType, targetParentType);
         }
 
         if (result.pageUrl) {
