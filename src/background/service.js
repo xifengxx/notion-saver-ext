@@ -18,7 +18,11 @@ var STORE = {
   NOTIF_URL_PREFIX: 'notif_url_',
   SAVE_HISTORY_PREFIX: 'save_history_',
   SAVED_TARGETS_PREFIX: 'saved_targets_',
+  IMAGE_TASK: 'notion_image_task',
 };
+
+// SW 重启时恢复未完成的图片替换任务
+loadAndResumePendingImageTasks();
 
 // 安装/更新时创建右键菜单
 chrome.runtime.onInstalled.addListener(function() {
@@ -309,26 +313,37 @@ function saveToNotion(data, parentPageId, workspaceBotId, targetType) {
         };
       }
 
-      // 上传图片到 Notion（v0.4.0 File Upload）
-      return uploadImages(token, blocks).then(function(transformedBlocks) {
-        var chunks = [];
-        for (var i = 0; i < transformedBlocks.length; i += BLOCK_LIMIT) {
-          chunks.push(transformedBlocks.slice(i, i + BLOCK_LIMIT));
+      // v0.5.3: 两阶段保存 — Phase 1 先存 external URL 图片，Phase 2 后台替换
+      var imageBlockCount = 0;
+      for (var j = 0; j < blocks.length; j++) {
+        if (blocks[j].type === 'image' && blocks[j].image && blocks[j].image.type === 'external') {
+          imageBlockCount++;
+        }
+      }
+
+      var chunks = [];
+      for (var i = 0; i < blocks.length; i += BLOCK_LIMIT) {
+        chunks.push(blocks.slice(i, i + BLOCK_LIMIT));
+      }
+
+      chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'appending_blocks', blocksTotal: blocks.length, blocksDone: 0 } });
+      showBadge('0/' + chunks.length, '#888888');
+
+      return appendAllBlocks(token, pageId, chunks, 0, blocks.length).then(function() {
+        chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
+        chrome.action.setBadgeText({ text: '' });
+
+        // Phase 2: 后台替换图片
+        if (imageBlockCount > 0) {
+          startBackgroundImageReplacement(token, pageId, workspaceBotId, blocks);
         }
 
-        chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'appending_blocks', blocksTotal: transformedBlocks.length, blocksDone: 0 } });
-        showBadge('0/' + chunks.length, '#888888');
-
-        return appendAllBlocks(token, pageId, chunks, 0, transformedBlocks.length).then(function() {
-          chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
-          chrome.action.setBadgeText({ text: '' });
-          return {
-            success: true,
-            pageUrl: page.url,
-            pageId: pageId,
-            blocksCount: transformedBlocks.length,
-          };
-        });
+        return {
+          success: true,
+          pageUrl: page.url,
+          pageId: pageId,
+          blocksCount: blocks.length,
+        };
       });
     });
   }).catch(function(err) {
@@ -855,6 +870,314 @@ function uploadImages(token, blocks) {
 }
 
 // ============================================================
+// Phase 2: 后台图片替换（先存后传）
+// ============================================================
+
+function startBackgroundImageReplacement(token, pageId, botId, blocks) {
+  var imageList = [];
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    if (b.type === 'image' && b.image && b.image.type === 'external' && b.image.external && b.image.external.url) {
+      imageList.push({
+        blockIndex: i,
+        externalUrl: b.image.external.url,
+        filename: getFilenameFromUrl(b.image.external.url, 'image/png'),
+        caption: b.image.caption || [],
+        status: 'pending',
+        fileUploadId: null,
+        notionFileId: null,
+        blockId: null,
+        childIndex: null
+      });
+    }
+  }
+
+  if (imageList.length === 0) return;
+
+  // 拉取页面 children 获取 block ID
+  fetchPageChildren(token, pageId, null, []).then(function(allChildren) {
+    for (var k = 0; k < allChildren.length; k++) {
+      var child = allChildren[k];
+      if (child.type === 'image' && child.image && child.image.type === 'external' && child.image.external) {
+        var childUrl = child.image.external.url;
+        for (var m = 0; m < imageList.length; m++) {
+          if (imageList[m].externalUrl === childUrl && !imageList[m].blockId) {
+            imageList[m].blockId = child.id;
+            imageList[m].childIndex = k;
+            break;
+          }
+        }
+      }
+    }
+
+    // 从下往上处理，避免删除导致位置偏移
+    imageList.sort(function(a, b) { return (b.childIndex || 0) - (a.childIndex || 0); });
+
+    var task = {
+      pageId: pageId,
+      botId: botId,
+      totalImages: imageList.length,
+      completedImages: 0,
+      failedImages: 0,
+      imageList: imageList,
+      currentIndex: 0,
+      allChildren: allChildren,
+      startedAt: Date.now(),
+      lastUpdatedAt: Date.now()
+    };
+    saveImageTaskState(task);
+
+    processImageReplacementBatch(token, task);
+  }).catch(function(err) {
+    console.error('[NotionSnap] fetchPageChildren failed for image replacement:', err && err.message ? err.message : err);
+  });
+}
+
+function fetchPageChildren(token, pageId, startCursor, accumulator) {
+  var url = '/v1/blocks/' + pageId.replace(/-/g, '') + '/children?page_size=100';
+  if (startCursor) url += '&start_cursor=' + startCursor;
+
+  return notionFetch(url, token, { method: 'GET' }).then(function(response) {
+    var results = accumulator.concat(response.results || []);
+    if (response.has_more && response.next_cursor) {
+      return delay(RATE_LIMIT_DELAY).then(function() {
+        return fetchPageChildren(token, pageId, response.next_cursor, results);
+      });
+    }
+    return results;
+  });
+}
+
+function processImageReplacementBatch(token, task) {
+  var idx = task.currentIndex;
+  if (idx >= task.totalImages) {
+    cleanupImageTask(task.pageId);
+    return;
+  }
+
+  var imageInfo = task.imageList[idx];
+  if (imageInfo.status === 'done' || imageInfo.status === 'failed') {
+    task.currentIndex = idx + 1;
+    task.lastUpdatedAt = Date.now();
+    saveImageTaskState(task);
+    return processImageReplacementBatch(token, task);
+  }
+
+  imageInfo.status = 'importing';
+  task.lastUpdatedAt = Date.now();
+  saveImageTaskState(task);
+
+  // 优先尝试 external_url 导入
+  importImageViaExternalUrl(token, imageInfo.externalUrl, imageInfo.filename)
+    .then(function(fileUploadId) {
+      imageInfo.fileUploadId = fileUploadId;
+      return pollFileUploadStatus(token, fileUploadId, 10);
+    })
+    .then(function(fileUploadObj) {
+      if (fileUploadObj.status === 'uploaded') {
+        imageInfo.notionFileId = fileUploadObj.id;
+        return replaceImageBlock(token, task, idx);
+      }
+      throw new Error('File upload status: ' + (fileUploadObj.status || 'unknown'));
+    })
+    .then(function() {
+      imageInfo.status = 'done';
+      task.completedImages++;
+      return advance();
+    })
+    .catch(function(err) {
+      // external_url 失败 → 尝试二进制回退
+      console.warn('[NotionSnap] external_url import failed, trying binary upload: ' + (err && err.message ? err.message : err));
+      return downloadAndUploadFallback(token, task, idx);
+    });
+
+  function advance() {
+    task.currentIndex = idx + 1;
+    task.lastUpdatedAt = Date.now();
+    saveImageTaskState(task);
+    if (task.currentIndex < task.totalImages) {
+      return delay(FILE_UPLOAD_RATE_LIMIT_DELAY).then(function() {
+        return processImageReplacementBatch(token, task);
+      });
+    }
+    cleanupImageTask(task.pageId);
+    return Promise.resolve();
+  }
+}
+
+function downloadAndUploadFallback(token, task, idx) {
+  var imageInfo = task.imageList[idx];
+
+  return fetch(imageInfo.externalUrl).then(function(response) {
+    if (!response.ok) throw new Error('Download failed: HTTP ' + response.status);
+    return response.blob();
+  }).then(function(blob) {
+    if (!blob || blob.size === 0) throw new Error('Empty blob');
+    if (blob.size > MAX_IMAGE_SIZE_BYTES) throw new Error('Image too large');
+    var contentType = blob.type || 'image/png';
+
+    return requestFileUpload(token, imageInfo.filename, contentType, blob.size).then(function(uploadInfo) {
+      return uploadBinaryToSignedUrl(uploadInfo.upload_url, blob, contentType, token).then(function() {
+        imageInfo.notionFileId = uploadInfo.id;
+        return replaceImageBlock(token, task, idx);
+      });
+    });
+  }).then(function() {
+    imageInfo.status = 'done';
+    task.completedImages++;
+    return Promise.resolve();
+  }).catch(function(err) {
+    console.error('[NotionSnap] Binary upload fallback also failed:', err && err.message ? err.message : err);
+    imageInfo.status = 'failed';
+    task.failedImages++;
+    return Promise.resolve();
+  });
+}
+
+function importImageViaExternalUrl(token, externalUrl, filename) {
+  return fetch(NOTION_API + '/v1/file_uploads', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Notion-Version': '2026-03-11',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      mode: 'external_url',
+      external_url: externalUrl,
+      filename: filename,
+    }),
+  }).then(function(response) {
+    if (!response.ok) {
+      return response.json().catch(function() { return {}; }).then(function(body) {
+        throw new Error('external_url import failed: ' + (body.message || 'HTTP ' + response.status));
+      });
+    }
+    return response.json();
+  }).then(function(data) {
+    return data.id;
+  });
+}
+
+function pollFileUploadStatus(token, fileUploadId, remainingAttempts) {
+  if (remainingAttempts <= 0) {
+    return Promise.reject(new Error('File upload polling timed out'));
+  }
+  return delay(3000).then(function() {
+    return fetch(NOTION_API + '/v1/file_uploads/' + fileUploadId, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Notion-Version': '2026-03-11',
+      },
+    }).then(function(response) {
+      if (!response.ok) throw new Error('Poll failed: HTTP ' + response.status);
+      return response.json();
+    }).then(function(data) {
+      if (data.status === 'uploaded' || data.status === 'failed') return data;
+      var nextDelay = Math.min((10 - remainingAttempts + 1) * 2000, 10000);
+      return delay(nextDelay).then(function() {
+        return pollFileUploadStatus(token, fileUploadId, remainingAttempts - 1);
+      });
+    });
+  });
+}
+
+function replaceImageBlock(token, task, idx) {
+  var imageInfo = task.imageList[idx];
+  var allChildren = task.allChildren;
+  var childIndex = imageInfo.childIndex;
+
+  if (!imageInfo.blockId || !imageInfo.notionFileId) return Promise.resolve();
+
+  // 找到前一个 block 用于 after 定位
+  var afterBlockId = null;
+  if (childIndex > 0) {
+    for (var i = childIndex - 1; i >= 0; i--) {
+      var prevBlock = allChildren[i];
+      if (prevBlock.id !== imageInfo.blockId) {
+        afterBlockId = prevBlock.id;
+        break;
+      }
+    }
+  }
+
+  return deleteBlock(token, imageInfo.blockId).then(function() {
+    return delay(RATE_LIMIT_DELAY).then(function() {
+      var newBlock = {
+        object: 'block',
+        type: 'image',
+        image: {
+          type: 'file_upload',
+          file_upload: { id: imageInfo.notionFileId },
+          caption: imageInfo.caption,
+        },
+      };
+      var bodyObj = { children: [newBlock] };
+      if (afterBlockId) bodyObj.after = afterBlockId;
+
+      return appendSingleBlock(token, task.pageId, bodyObj).then(function(response) {
+        if (response && response.results && response.results[0]) {
+          allChildren[childIndex] = response.results[0];
+          task.allChildren = allChildren;
+        }
+      });
+    });
+  });
+}
+
+function deleteBlock(token, blockId) {
+  return notionFetch('/v1/blocks/' + blockId.replace(/-/g, ''), token, {
+    method: 'DELETE',
+  }).catch(function(err) {
+    if (err.message && err.message.indexOf('not find') >= 0) return;
+    throw err;
+  });
+}
+
+function appendSingleBlock(token, pageId, bodyObj) {
+  var url = '/v1/blocks/' + pageId.replace(/-/g, '') + '/children';
+  return notionFetch(url, token, {
+    method: 'PATCH',
+    body: JSON.stringify(bodyObj),
+  });
+}
+
+function saveImageTaskState(task) {
+  var kv = {};
+  kv[STORE.IMAGE_TASK] = task;
+  chrome.storage.local.set(kv);
+}
+
+function cleanupImageTask(pageId) {
+  chrome.storage.local.get([STORE.IMAGE_TASK], function(result) {
+    var task = result[STORE.IMAGE_TASK];
+    if (task && task.pageId === pageId) {
+      chrome.storage.local.remove(STORE.IMAGE_TASK);
+    }
+  });
+}
+
+function loadAndResumePendingImageTasks() {
+  chrome.storage.local.get([STORE.IMAGE_TASK], function(result) {
+    var task = result[STORE.IMAGE_TASK];
+    if (!task || !task.pageId || task.currentIndex >= task.totalImages) return;
+
+    if (Date.now() - task.startedAt > 3600000) {
+      chrome.storage.local.remove(STORE.IMAGE_TASK);
+      return;
+    }
+
+    console.log('[NotionSnap] Resuming image replacement: ' + task.completedImages + '/' + task.totalImages + ' done');
+
+    getValidToken().then(function(token) {
+      if (!token) return;
+      processImageReplacementBatch(token, task);
+    });
+  });
+}
+
+// ============================================================
 // 获取默认父页面
 // ============================================================
 function getDefaultParent(token, explicitParentId, botId, targetType) {
@@ -1051,7 +1374,8 @@ function getPageTitle(page) {
 // ============================================================
 // Notion API 请求封装（含重试）
 // ============================================================
-function notionFetch(path, token, options) {
+function notionFetch(path, token, options, apiVersion) {
+  var version = apiVersion || '2022-06-28';
   var maxRetries = 3;
   var attempt = 0;
 
@@ -1061,7 +1385,7 @@ function notionFetch(path, token, options) {
       method: options.method,
       headers: {
         'Authorization': 'Bearer ' + token,
-        'Notion-Version': '2022-06-28',
+        'Notion-Version': version,
         'Content-Type': 'application/json',
       },
       body: options.body || null,

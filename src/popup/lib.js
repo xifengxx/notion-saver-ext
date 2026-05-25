@@ -7,6 +7,7 @@ export var STORE = {
   SAVE_STATE: 'notion_save_state',
   OAUTH_SESSION: 'oauth_session_id',
   POPUP_THEME: 'popup_theme',
+  IMAGE_TASK: 'notion_image_task',
 };
 
 export function recentPagesKey(botId) {
