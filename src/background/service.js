@@ -134,7 +134,8 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   if (message.action === 'save_to_notion') {
     var botId = message.workspaceBotId || null;
     var targetType = message.targetType || 'page';
-    saveToNotion(message.data, message.targetPage, botId, targetType).then(sendResponse).catch(function(err) {
+    var sourceTabId = (sender && sender.tab && sender.tab.id) ? sender.tab.id : null;
+    saveToNotion(message.data, message.targetPage, botId, targetType, sourceTabId).then(sendResponse).catch(function(err) {
       console.error('[NotionSnap] Unhandled error in saveToNotion:', err);
       sendResponse({ success: false, error: err.message || '保存失败' });
     });
@@ -277,7 +278,7 @@ function refreshToken(refreshTokenValue) {
 // ============================================================
 // Notion API 核心保存流程
 // ============================================================
-function saveToNotion(data, parentPageId, workspaceBotId, targetType) {
+function saveToNotion(data, parentPageId, workspaceBotId, targetType, sourceTabId) {
   // 标记保存进行中，用于检测 SW 终止导致的中断 + 进度跟踪
   chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'creating_page', blocksTotal: 0, blocksDone: 0, retryCurrent: 0 } });
 
@@ -336,7 +337,7 @@ function saveToNotion(data, parentPageId, workspaceBotId, targetType) {
 
         // Phase 2: 后台替换图片
         if (imageBlockCount > 0) {
-          startBackgroundImageReplacement(token, pageId, workspaceBotId, blocks);
+          startBackgroundImageReplacement(token, pageId, workspaceBotId, blocks, data.url, sourceTabId);
         }
 
         return {
@@ -879,7 +880,14 @@ function uploadImages(token, blocks) {
 // Phase 2: 后台图片替换（先存后传）
 // ============================================================
 
-function startBackgroundImageReplacement(token, pageId, botId, blocks) {
+function startBackgroundImageReplacement(token, pageId, botId, blocks, pageUrl, sourceTabId) {
+  // 提取页面 origin 作为图片请求的 Referer（CDN 防盗链用）
+  var referer = '';
+  try {
+    var pu = new URL(pageUrl || '');
+    referer = pu.origin;
+  } catch (e) { /* ignore */ }
+
   var imageList = [];
   for (var i = 0; i < blocks.length; i++) {
     var b = blocks[i];
@@ -893,7 +901,8 @@ function startBackgroundImageReplacement(token, pageId, botId, blocks) {
         fileUploadId: null,
         notionFileId: null,
         blockId: null,
-        childIndex: null
+        childIndex: null,
+        referer: referer
       });
     }
   }
@@ -976,7 +985,8 @@ function startBackgroundImageReplacement(token, pageId, botId, blocks) {
       currentIndex: 0,
       allChildren: allChildren,
       startedAt: Date.now(),
-      lastUpdatedAt: Date.now()
+      lastUpdatedAt: Date.now(),
+      sourceTabId: sourceTabId || null
     };
     saveImageTaskState(task);
 
@@ -1060,7 +1070,9 @@ function processImageReplacementBatch(token, task) {
       imageInfo.notionFileId = null;
       imageInfo.fileUploadId = null;
       imageInfo.blockDeleted = false;
-      return downloadAndUploadFallback(token, task, idx);
+      return downloadAndUploadFallback(token, task, idx).then(function() {
+        return advance();
+      });
     });
 
   function advance() {
@@ -1082,10 +1094,15 @@ function processImageReplacementBatch(token, task) {
 function downloadAndUploadFallback(token, task, idx) {
   var imageInfo = task.imageList[idx];
 
-  return fetch(imageInfo.externalUrl).then(function(response) {
-    if (!response.ok) throw new Error('Download failed: HTTP ' + response.status);
-    return response.blob();
-  }).then(function(blob) {
+  // 优先通过源页面标签页下载图片（页面上下文中 Referer 天然正确，解决 CDN 防盗链 403）
+  var downloadPromise;
+  if (task.sourceTabId) {
+    downloadPromise = downloadImageViaTab(task.sourceTabId, imageInfo.externalUrl);
+  } else {
+    downloadPromise = downloadImageViaSW(imageInfo.externalUrl);
+  }
+
+  return downloadPromise.then(function(blob) {
     if (!blob || blob.size === 0) throw new Error('Empty blob');
     if (blob.size > MAX_IMAGE_SIZE_BYTES) throw new Error('Image too large');
     var contentType = blob.type || 'image/png';
@@ -1099,15 +1116,111 @@ function downloadAndUploadFallback(token, task, idx) {
   }).then(function() {
     imageInfo.status = 'done';
     task.completedImages++;
-    var idx = task.currentIndex;
     console.log('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] done (binary fallback)');
     return Promise.resolve();
   }).catch(function(err) {
-    var idx = task.currentIndex;
     console.error('[NotionSnap] Phase 2 [' + (idx + 1) + '/' + task.totalImages + '] FAILED:', err && err.message ? err.message : err);
     imageInfo.status = 'failed';
     task.failedImages++;
     return Promise.resolve();
+  });
+}
+
+// 通过页面标签页下载（页面上下文，Referer 正确）
+function downloadImageViaTab(tabId, url) {
+  return new Promise(function(resolve, reject) {
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: 'MAIN',
+      func: function(imageUrl) {
+        // 先尝试 fetch（有 credentials + referrer）
+        return fetch(imageUrl, { credentials: 'include', referrerPolicy: 'no-referrer-when-downgrade' }).then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.arrayBuffer();
+        }).then(function(buf) {
+          return Array.from(new Uint8Array(buf));
+        }).catch(function(fetchErr) {
+          // fetch 失败（通常是 CDN 检查 Sec-Fetch-Mode），回退到图片加载+canvas
+          // <img> 标签加载使用 no-cors 模式，浏览器原生机制绕过 CDN 检查
+          return new Promise(function(resolve, reject) {
+            var img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function() {
+              try {
+                var canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                var ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                // 尝试 toBlob（Chrome 支持），否则用 toDataURL
+                if (canvas.toBlob) {
+                  canvas.toBlob(function(blob) {
+                    if (blob && blob.size > 0) {
+                      blob.arrayBuffer().then(function(buf) {
+                        resolve(Array.from(new Uint8Array(buf)));
+                      }).catch(function(e) {
+                        reject(new Error('Blob read failed: ' + e.message));
+                      });
+                    } else {
+                      reject(new Error('Empty canvas blob'));
+                    }
+                  }, 'image/png');
+                } else {
+                  // Safari 等不支持 toBlob 时用 toDataURL
+                  var dataUrl = canvas.toDataURL('image/png');
+                  var parts = dataUrl.split(',');
+                  if (parts.length === 2) {
+                    var binaryStr = atob(parts[1]);
+                    var bytes = new Uint8Array(binaryStr.length);
+                    for (var bi = 0; bi < binaryStr.length; bi++) {
+                      bytes[bi] = binaryStr.charCodeAt(bi);
+                    }
+                    resolve(Array.from(bytes));
+                  } else {
+                    reject(new Error('Invalid data URL'));
+                  }
+                }
+              } catch(e) {
+                reject(new Error('Canvas error: ' + e.message));
+              }
+            };
+            img.onerror = function() {
+              reject(new Error(fetchErr.message));
+            };
+            img.src = imageUrl;
+          });
+        }).catch(function(e) {
+          return 'ERROR:' + e.message;
+        });
+      },
+      args: [url]
+    }, function(results) {
+      if (chrome.runtime.lastError) {
+        // 标签页关闭或注入失败 → 回退到 SW 下载
+        console.warn('[NotionSnap] Tab download unavailable: ' + chrome.runtime.lastError.message);
+        downloadImageViaSW(url).then(resolve).catch(reject);
+        return;
+      }
+      var result = results && results[0] ? results[0].result : null;
+      if (Array.isArray(result)) {
+        var blob = new Blob([new Uint8Array(result)]);
+        resolve(blob);
+      } else if (typeof result === 'string' && result.indexOf('ERROR:') === 0) {
+        // 页面内下载也失败了，回退到 SW 下载
+        console.warn('[NotionSnap] Tab download failed: ' + result.substring(6) + ', trying SW download');
+        downloadImageViaSW(url).then(resolve).catch(reject);
+      } else {
+        downloadImageViaSW(url).then(resolve).catch(reject);
+      }
+    });
+  });
+}
+
+// Service Worker 直接下载（可能因 CDN 防盗链而 403）
+function downloadImageViaSW(url) {
+  return fetch(url).then(function(response) {
+    if (!response.ok) throw new Error('Download failed: HTTP ' + response.status);
+    return response.blob();
   });
 }
 

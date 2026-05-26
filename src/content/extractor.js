@@ -42,6 +42,59 @@ function dividerBlock() {
   return { type: 'divider', divider: {} };
 }
 
+// Notion API 支持的代码语言白名单（2026-03-11）
+var NOTION_CODE_LANGUAGES = {
+  'abap':1,'abc':1,'agda':1,'arduino':1,'ascii art':1,'assembly':1,'bash':1,'basic':1,'bnf':1,
+  'c':1,'c#':1,'c++':1,'clojure':1,'coffeescript':1,'coq':1,'css':1,'dart':1,'dhall':1,'diff':1,
+  'docker':1,'ebnf':1,'elixir':1,'elm':1,'erlang':1,'f#':1,'flow':1,'fortran':1,'gherkin':1,
+  'glsl':1,'go':1,'graphql':1,'groovy':1,'haskell':1,'hcl':1,'html':1,'idris':1,'java':1,
+  'javascript':1,'json':1,'julia':1,'kotlin':1,'latex':1,'less':1,'lisp':1,'livescript':1,
+  'llvm ir':1,'lua':1,'makefile':1,'markdown':1,'markup':1,'matlab':1,'mathematica':1,'mermaid':1,
+  'nix':1,'notion formula':1,'objective-c':1,'ocaml':1,'pascal':1,'perl':1,'php':1,'plain text':1,
+  'powershell':1,'prolog':1,'protobuf':1,'purescript':1,'python':1,'r':1,'racket':1,'reason':1,
+  'ruby':1,'rust':1,'sass':1,'scala':1,'scheme':1,'scss':1,'shell':1,'smalltalk':1,'solidity':1,
+  'sql':1,'swift':1,'toml':1,'typescript':1,'vb.net':1,'verilog':1,'vhdl':1,'visual basic':1,
+  'webassembly':1,'xml':1,'yaml':1,'java/c/c++/c#':1
+};
+
+// 常见非标准语言名映射到 Notion 支持的值
+var CODE_LANG_ALIASES = {
+  'text': 'plain text',
+  'plain': 'plain text',
+  'plaintext': 'plain text',
+  'txt': 'plain text',
+  'js': 'javascript',
+  'ts': 'typescript',
+  'py': 'python',
+  'rb': 'ruby',
+  'sh': 'shell',
+  'zsh': 'shell',
+  'yml': 'yaml',
+  'md': 'markdown',
+  'csharp': 'c#',
+  'cplusplus': 'c++',
+  'fsharp': 'f#',
+  'objc': 'objective-c',
+  'obj-c': 'objective-c',
+  'vb': 'visual basic',
+  'vba': 'visual basic',
+  'asm': 'assembly',
+  'wasm': 'webassembly',
+};
+
+function normalizeCodeLanguage(lang) {
+  if (!lang) return 'plain text';
+  var lower = lang.toLowerCase().trim();
+  // 直接命中白名单
+  if (NOTION_CODE_LANGUAGES[lower]) return lower;
+  // 检查别名映射
+  if (CODE_LANG_ALIASES[lower]) return CODE_LANG_ALIASES[lower];
+  // 尝试常用变体
+  if (NOTION_CODE_LANGUAGES[lower.replace(/script$/,'')]) return lower.replace(/script$/,'');
+  // 都不匹配，回退 plain text
+  return 'plain text';
+}
+
 function imageBlock(url, caption) {
   return {
     type: 'image',
@@ -49,6 +102,16 @@ function imageBlock(url, caption) {
       type: 'external',
       external: { url: url },
       caption: caption ? [{ type: 'text', text: { content: caption } }] : [],
+    },
+  };
+}
+
+function videoBlock(url) {
+  return {
+    type: 'video',
+    video: {
+      type: 'external',
+      external: { url: url },
     },
   };
 }
@@ -248,7 +311,7 @@ function processElement(el, tag, blocks) {
     var level = parseInt(tag[1]);
     var headingImgs = el.querySelectorAll('img');
     for (var hi = 0; hi < headingImgs.length; hi++) {
-      var hiSrc = headingImgs[hi].getAttribute('src') || headingImgs[hi].getAttribute('data-src') || '';
+      var hiSrc = headingImgs[hi].getAttribute('src') || headingImgs[hi].getAttribute('data-src') || headingImgs[hi].getAttribute('data-original') || '';
       if (hiSrc) blocks.push(imageBlock(hiSrc, ''));
     }
     var cloneH = el.cloneNode(true);
@@ -265,8 +328,8 @@ function processElement(el, tag, blocks) {
   else if (tag === 'blockquote') {
     var bqImgs = el.querySelectorAll('img');
     for (var bi = 0; bi < bqImgs.length; bi++) {
-      var bqSrc = bqImgs[bi].getAttribute('src') || bqImgs[bi].getAttribute('data-src') || '';
-      if (bqSrc) blocks.push(imageBlock(bqSrc, ''));
+      var bqSrc = bqImgs[bi].getAttribute('src') || bqImgs[bi].getAttribute('data-src') || bqImgs[bi].getAttribute('data-original') || '';
+      if (bqSrc) blocks.push(imageBlock(resolveRelativeUrl(bqSrc), ''));
     }
     var bqClone = el.cloneNode(true);
     var bqCloneImgs = bqClone.querySelectorAll('img');
@@ -335,12 +398,12 @@ function processElement(el, tag, blocks) {
     var lang = '';
     var dataLang = el.getAttribute('data-lang');
     if (dataLang) {
-      lang = dataLang;
+      lang = normalizeCodeLanguage(dataLang);
     } else {
       var codeEl2 = el.querySelector('code');
       if (codeEl2 && codeEl2.className) {
-        var langMatch = codeEl2.className.match(/language-(\w+)/);
-        if (langMatch) lang = langMatch[1];
+        var langMatch = codeEl2.className.match(/language-(\S+)/);
+        if (langMatch) lang = normalizeCodeLanguage(langMatch[1]);
       }
     }
 
@@ -374,9 +437,23 @@ function processElement(el, tag, blocks) {
   }
   // 图片
   else if (tag === 'img') {
-    var src = el.getAttribute('src') || el.getAttribute('data-src') || '';
+    var src = el.getAttribute('src') || el.getAttribute('data-src') || el.getAttribute('data-original') || el.getAttribute('data-lazy-src') || '';
     var alt = el.getAttribute('alt') || el.getAttribute('data-caption') || '';
-    if (src) blocks.push(imageBlock(src, alt));
+    if (src) blocks.push(imageBlock(resolveRelativeUrl(src), alt));
+  }
+  // 视频
+  else if (tag === 'video') {
+    var vSrc = el.getAttribute('src') || '';
+    if (!vSrc || vSrc.indexOf('blob:') === 0) {
+      var srcChildren = el.querySelectorAll('source');
+      for (var vi = 0; vi < srcChildren.length; vi++) {
+        var su = srcChildren[vi].getAttribute('src') || '';
+        if (su && su.indexOf('blob:') !== 0) { vSrc = su; break; }
+      }
+    }
+    if (vSrc && vSrc.indexOf('blob:') !== 0) {
+      blocks.push(videoBlock(resolveRelativeUrl(vSrc)));
+    }
   }
   // 表格 → Notion table block
   else if (tag === 'table') {
@@ -393,7 +470,7 @@ function processElement(el, tag, blocks) {
     var children2 = el.children;
     for (var ci = 0; ci < children2.length; ci++) {
       var ct = children2[ci].tagName.toLowerCase();
-      if (/^h[1-6]$/.test(ct) || ct === 'p' || ct === 'blockquote' || ct === 'ul' || ct === 'ol' || ct === 'pre' || ct === 'code' || ct === 'div' || ct === 'section' || ct === 'article' || ct === 'table' || ct === 'img') {
+      if (/^h[1-6]$/.test(ct) || ct === 'p' || ct === 'blockquote' || ct === 'ul' || ct === 'ol' || ct === 'pre' || ct === 'code' || ct === 'div' || ct === 'section' || ct === 'article' || ct === 'table' || ct === 'img' || ct === 'figure') {
         hasBlockChild = true;
         break;
       }
@@ -411,8 +488,8 @@ function processElement(el, tag, blocks) {
 function processListItem(li, blocks, listType) {
   var liImgs = li.querySelectorAll('img');
   for (var i = 0; i < liImgs.length; i++) {
-    var imgSrc = liImgs[i].getAttribute('src') || liImgs[i].getAttribute('data-src') || '';
-    if (imgSrc) blocks.push(imageBlock(imgSrc, ''));
+    var imgSrc = liImgs[i].getAttribute('src') || liImgs[i].getAttribute('data-src') || liImgs[i].getAttribute('data-original') || '';
+    if (imgSrc) blocks.push(imageBlock(resolveRelativeUrl(imgSrc), ''));
   }
   var liClone = li.cloneNode(true);
   var cloneImgs = liClone.querySelectorAll('img');
@@ -429,9 +506,9 @@ function processParagraph(el, blocks) {
 
   if (!hasText && imgs.length > 0) {
     for (var i = 0; i < imgs.length; i++) {
-      var imgSrc = imgs[i].getAttribute('src') || imgs[i].getAttribute('data-src') || '';
+      var imgSrc = imgs[i].getAttribute('src') || imgs[i].getAttribute('data-src') || imgs[i].getAttribute('data-original') || '';
       var imgAlt = imgs[i].getAttribute('alt') || '';
-      if (imgSrc) blocks.push(imageBlock(imgSrc, imgAlt));
+      if (imgSrc) blocks.push(imageBlock(resolveRelativeUrl(imgSrc), imgAlt));
     }
   } else {
     // 处理 <br> 分段：公众号说说类文章用 <br> 分段，需要拆成多个 Notion 段落
@@ -465,15 +542,27 @@ function processParagraph(el, blocks) {
           }
         }
         if (rt.length > 0) {
-          blocks.push(paragraphBlock(rt));
+          pushParagraphChunks(blocks, rt);
         }
       }
     } else {
       var rt = richTextFromNode(el);
       if (rt.length > 0) {
-        blocks.push(paragraphBlock(rt));
+        pushParagraphChunks(blocks, rt);
       }
     }
+  }
+}
+
+// Notion API: paragraph.rich_text 最多 100 个元素，超过则分段
+function pushParagraphChunks(blocks, rt) {
+  if (rt.length <= 100) {
+    blocks.push(paragraphBlock(rt));
+    return;
+  }
+  for (var i = 0; i < rt.length; i += 100) {
+    var chunk = rt.slice(i, Math.min(i + 100, rt.length));
+    blocks.push(paragraphBlock(chunk));
   }
 }
 
@@ -566,40 +655,77 @@ function domToBlocksFromHTML(html, blocks) {
 // ============================================================
 // 消息处理
 // ============================================================
+function finalizeExtractedData(data) {
+  console.log('[NotionSnap] Extract result:', data.error || 'OK', 'type:', data.type, 'title:', data.title, 'contentHTML length:', data.contentHTML ? data.contentHTML.length : 0);
+  if (data.contentHTML && !data.error) {
+    var blocks = [];
+    domToBlocksFromHTML(data.contentHTML, blocks);
+
+    if (blocks.length === 0 && data.contentHTML) {
+      var plainText = extractPlainText(data.contentHTML);
+      if (plainText && plainText.trim().length > 0) {
+        console.log('[NotionSnap] DOM traversal returned 0 blocks, falling back to plain text');
+        var chunkSize = 1500;
+        for (var pi = 0; pi < plainText.length; pi += chunkSize) {
+          blocks.push(paragraphBlock([{ type: 'text', text: { content: plainText.substring(pi, pi + chunkSize).trim() } }]));
+        }
+      }
+    }
+
+    // 图片去重：按 URL 去重，保留第一次出现
+    var seenUrls = {};
+    var dedupedBlocks = [];
+    var dedupedCount = 0;
+    for (var bi = 0; bi < blocks.length; bi++) {
+      var b = blocks[bi];
+      if (b.type === 'image' && b.image && b.image.external && b.image.external.url) {
+        var imgUrl = b.image.external.url;
+        if (seenUrls[imgUrl]) {
+          dedupedCount++;
+          continue;
+        }
+        seenUrls[imgUrl] = true;
+      }
+      dedupedBlocks.push(b);
+    }
+    if (dedupedCount > 0) {
+      console.log('[NotionSnap] Removed', dedupedCount, 'duplicate image(s)');
+      blocks = dedupedBlocks;
+    }
+
+    data.blocks = blocks;
+    console.log('[NotionSnap] Extracted', blocks.length, 'blocks');
+    if (blocks.length === 0) {
+      console.log('[NotionSnap] HTML sample (first 500 chars):', data.contentHTML.substring(0, 500));
+    }
+
+    var bodyText = extractPlainText(data.contentHTML || '');
+    var keywordText = (data.title || '') + ' ' + (bodyText || '');
+    data.keywords = extractKeywords(keywordText, 5);
+  }
+  return data;
+}
+
 chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   if (message.action === 'extract') {
+    // 知乎问答页：先展开所有折叠内容（React 异步渲染），再提取
+    if (isZhihuQuestion()) {
+      expandAllZhihuContent();
+      setTimeout(function() {
+        try {
+          var data = extractContent();
+          sendResponse(finalizeExtractedData(data));
+        } catch (err) {
+          console.error('[NotionSnap] Extract error:', err);
+          sendResponse({ error: err.message, title: document.title });
+        }
+      }, 1000);
+      return true;
+    }
+
     try {
       var data = extractContent();
-      console.log('[NotionSnap] Extract result:', data.error || 'OK', 'type:', data.type, 'title:', data.title, 'contentHTML length:', data.contentHTML ? data.contentHTML.length : 0);
-      if (data.contentHTML && !data.error) {
-        var blocks = [];
-        domToBlocksFromHTML(data.contentHTML, blocks);
-
-        // 安全网：blocks 为空但 HTML 有文本 → 回退提取纯文本
-        if (blocks.length === 0 && data.contentHTML) {
-          var plainText = extractPlainText(data.contentHTML);
-          if (plainText && plainText.trim().length > 0) {
-            console.log('[NotionSnap] DOM traversal returned 0 blocks, falling back to plain text');
-            // 按 1500 字符分段，每段一个段落 block，避免超长
-            var chunkSize = 1500;
-            for (var pi = 0; pi < plainText.length; pi += chunkSize) {
-              blocks.push(paragraphBlock([{ type: 'text', text: { content: plainText.substring(pi, pi + chunkSize).trim() } }]));
-            }
-          }
-        }
-
-        data.blocks = blocks;
-        console.log('[NotionSnap] Extracted', blocks.length, 'blocks');
-        if (blocks.length === 0) {
-          console.log('[NotionSnap] HTML sample (first 500 chars):', data.contentHTML.substring(0, 500));
-        }
-
-        // 关键词提取（标题 + 正文纯文本 N-gram 频率分析）
-        var bodyText = extractPlainText(data.contentHTML || '');
-        var keywordText = (data.title || '') + ' ' + (bodyText || '');
-        data.keywords = extractKeywords(keywordText, 5);
-      }
-      sendResponse(data);
+      sendResponse(finalizeExtractedData(data));
     } catch (err) {
       console.error('[NotionSnap] Extract error:', err);
       sendResponse({ error: err.message, title: document.title });
@@ -706,13 +832,229 @@ function extractContent() {
     return parseWechatArticle(document);
   }
 
-  // 通用网页：用原生方式提取正文
+  // 知乎问答页面：提取问题 + 回答
+  if (isZhihuQuestion()) {
+    return parseZhihuQuestion(document);
+  }
+
+  // 通用网页
   return extractGenericContent(document);
 }
 
 function isWechatArticle() {
   return window.location.hostname === 'mp.weixin.qq.com'
     || document.querySelector('#js_content') !== null;
+}
+
+function isZhihuQuestion() {
+  return /zhihu\.com\/question\//.test(window.location.href);
+}
+
+// 知乎问答页：仅展开问题描述和回答中的折叠内容，不触发页面其他按钮
+function expandAllZhihuContent() {
+  var clickedCount = 0;
+
+  // 1. 问题描述展开按钮：.QuestionRichText-more（知乎标准 class）
+  var qMoreBtns = document.querySelectorAll('.QuestionRichText-more');
+  for (var qi = 0; qi < qMoreBtns.length; qi++) {
+    try { qMoreBtns[qi].click(); clickedCount++; } catch (e) {}
+  }
+
+  // 2. 回答展开按钮：.ContentItem-expandButton（知乎标准 class）
+  var aExpandBtns = document.querySelectorAll('.ContentItem-expandButton');
+  for (var ai = 0; ai < aExpandBtns.length; ai++) {
+    try { aExpandBtns[ai].click(); clickedCount++; } catch (e) {}
+  }
+
+  // 3. 移除所有内容区域内的折叠状态（.is-collapsed）
+  var collapsedEls = document.querySelectorAll('.RichContent.is-collapsed, .QuestionRichText--collapsed');
+  for (var ci = 0; ci < collapsedEls.length; ci++) {
+    collapsedEls[ci].classList.remove('is-collapsed');
+  }
+
+  // 4. 只在回答/问题描述区域内解除 max-height 限制
+  var contentZones = document.querySelectorAll('.RichContent, .RichContent-inner, .QuestionRichText');
+  for (var zi = 0; zi < contentZones.length; zi++) {
+    var zone = contentZones[zi];
+    zone.style.maxHeight = 'none';
+    zone.style.overflow = 'visible';
+    var restricted = zone.querySelectorAll('[style*="max-height"]');
+    for (var ri = 0; ri < restricted.length; ri++) {
+      var el = restricted[ri];
+      if (el.style.maxHeight && el.style.maxHeight !== 'none') {
+        el.style.maxHeight = 'none';
+        el.style.overflow = 'visible';
+      }
+    }
+  }
+
+  console.log('[NotionSnap] ExpandAllZhihuContent: ' + clickedCount + ' buttons clicked');
+}
+
+// ============================================================
+// 知乎问答专用解析
+// ============================================================
+function parseZhihuQuestion(doc) {
+  var questionTitle = doc.querySelector('.QuestionHeader-title');
+  var container = doc.createElement('div');
+
+  // 标题
+  if (questionTitle) {
+    var h1 = doc.createElement('h1');
+    h1.textContent = questionTitle.textContent.trim();
+    container.appendChild(h1);
+  }
+
+  // 问题描述：直接取 .RichText.ztext（跳过 span#content 包装层）
+  var questionRichText = doc.querySelector('.QuestionRichText .RichText.ztext')
+    || doc.querySelector('.QuestionHeader-detail .RichText.ztext')
+    || doc.querySelector('.QuestionRichText');
+  if (questionRichText && questionRichText.textContent.trim().length > 5) {
+    var qClone = questionRichText.cloneNode(true);
+    container.appendChild(qClone);
+    var hr = doc.createElement('hr');
+    container.appendChild(hr);
+  }
+
+  // 提取前 5 条有效回答
+  // 优先用 .ContentItem.AnswerItem（覆盖"高分问答"独立容器 + "更多问答"列表）
+  // 回退到 .List-item（旧版知乎或无 AnswerItem class 的页面）
+  var answerItems = doc.querySelectorAll('.ContentItem.AnswerItem');
+  if (!answerItems || answerItems.length === 0) {
+    answerItems = doc.querySelectorAll('.List-item');
+    console.log('[NotionSnap] ZhihuQuestion: using List-item fallback, found ' + (answerItems ? answerItems.length : 0));
+  }
+
+  var maxAnswers = 5;
+  var collectedCount = 0;
+  for (var a = 0; a < answerItems.length && collectedCount < maxAnswers; a++) {
+    var item = answerItems[a];
+
+    // 跳过推广/广告内容
+    var adMarkers = item.querySelectorAll('.AdvertImg, [class*="advert"], [class*="sponsor"], [class*="commerce"]');
+    if (adMarkers.length > 0) {
+      console.log('[NotionSnap] Skip answer[' + a + ']: ad/promotion');
+      continue;
+    }
+
+    // 直接取 .RichText.ztext（含实际块元素：p、figure、table、h2 等）
+    // 跳过 .RichContent-inner > .css-376mun > span#content 包装层
+    var richText = item.querySelector('.RichContent .RichText.ztext')
+      || item.querySelector('.RichContent-inner .RichText.ztext')
+      || item.querySelector('.RichText.ztext')
+      || item.querySelector('.RichContent-inner');
+
+    if (!richText) {
+      console.log('[NotionSnap] Skip answer[' + a + ']: no RichText found');
+      continue;
+    }
+
+    var fullText = richText.textContent || '';
+    if (fullText.trim().length < 10) {
+      console.log('[NotionSnap] Skip answer[' + a + ']: text too short (' + fullText.trim().length + ' chars)');
+      continue;
+    }
+
+    // 展开后直接 clone 完整 DOM 树
+    var answerClone = richText.cloneNode(true);
+
+    // 清理知乎特有噪声元素（在 clone 内部操作）
+    cleanZhihuAnswerNoise(answerClone);
+
+    container.appendChild(answerClone);
+
+    collectedCount++;
+
+    if (collectedCount < maxAnswers && a < answerItems.length - 1) {
+      var divider = doc.createElement('hr');
+      container.appendChild(divider);
+    }
+  }
+  console.log('[NotionSnap] ZhihuQuestion: collected ' + collectedCount + ' answers from ' + answerItems.length + ' candidates');
+
+  // 知乎图片预处理：处理 SSR noscript fallback + React lazy 图片
+  processZhihuImages(container, doc);
+
+  // 通用图片预处理：lazy-load → src，相对路径 → 绝对路径
+  processGenericImages(container);
+
+  var blocks = [];
+  domToBlocks(container, blocks);
+
+  var meta = extractGenericMeta(doc);
+  var bodyText = container.textContent || '';
+  var wordCount = bodyText ? bodyText.length : 0;
+
+  return {
+    type: 'zhihu_question',
+    title: questionTitle ? questionTitle.textContent.trim() : (doc.title || ''),
+    author: meta.author,
+    publishTime: meta.publishTime,
+    coverImage: meta.coverImage,
+    description: meta.description,
+    siteName: '知乎',
+    language: meta.language,
+    wordCount: wordCount,
+    blocks: blocks,
+    contentHTML: container.innerHTML,
+    url: window.location.href,
+  };
+}
+
+// 知乎回答内容中的噪声清理
+function cleanZhihuAnswerNoise(el) {
+  // 移除链接卡片（通常不包含在正文提取中）
+  var linkCards = el.querySelectorAll('.RichText-LinkCardContainer');
+  for (var i = 0; i < linkCards.length; i++) linkCards[i].remove();
+
+  // 移除内容末尾的"发布于 XXXX"著作权信息（知乎在 RichText 末尾插入）
+  var copyrightDivs = el.querySelectorAll('.CopyrightRichText');
+  for (var j = 0; j < copyrightDivs.length; j++) copyrightDivs[j].remove();
+
+  // 移除内容末尾的编辑器/转载声明
+  var btzDivs = el.querySelectorAll('[class*="RichText"] [class*="copyright"]');
+  for (var k = 0; k < btzDivs.length; k++) btzDivs[k].remove();
+}
+
+// 知乎图片专用处理：noscript SSR fallback → 替换为真实 img
+function processZhihuImages(container, doc) {
+  // 1. 处理 <noscript> 中的 SSR 渲染图片 → 创建真实 img，删除 noscript
+  var noscripts = container.querySelectorAll('noscript');
+  for (var ns = 0; ns < noscripts.length; ns++) {
+    var nsHTML = noscripts[ns].textContent || '';
+    if (nsHTML.indexOf('<img') !== -1) {
+      var tmpDiv = doc.createElement('div');
+      tmpDiv.innerHTML = nsHTML;
+      var nsImgs = tmpDiv.querySelectorAll('img');
+      for (var ni = 0; ni < nsImgs.length; ni++) {
+        var nsImg = nsImgs[ni];
+        // 优先取 data-original（无印全尺寸），其次 src（带水印缩略图）
+        var realSrc = nsImg.getAttribute('data-original') || nsImg.getAttribute('src') || '';
+        if (realSrc && !/^data:image\/svg/i.test(realSrc)) {
+          var newImg = doc.createElement('img');
+          newImg.setAttribute('src', realSrc);
+          noscripts[ns].parentNode.insertBefore(newImg, noscripts[ns]);
+        }
+      }
+    }
+    noscripts[ns].remove();
+  }
+
+  // 2. 删除 .RichText-ConditionalImagePortal（内含 lazy React img，noscript 已提供等效 img，避免重复）
+  var portals = container.querySelectorAll('.RichText-ConditionalImagePortal');
+  for (var pi = 0; pi < portals.length; pi++) {
+    portals[pi].remove();
+  }
+
+  // 3. 处理剩余 React lazy 图片：跳过 SVG placeholder，确保 data-original/data-actualsrc 可被 processGenericImages 处理
+  var lazyImgs = container.querySelectorAll('img.lazy, img[data-actualsrc]');
+  for (var li = 0; li < lazyImgs.length; li++) {
+    var img = lazyImgs[li];
+    var curSrc = img.getAttribute('src') || '';
+    if (curSrc.indexOf('data:image/svg') === 0 || curSrc.indexOf('data:image/svg+xml') === 0) {
+      img.removeAttribute('src');
+    }
+  }
 }
 
 // ============================================================
@@ -833,48 +1175,324 @@ function parseWechatArticle(doc) {
 // ============================================================
 // 通用网页解析（替代 Readability）
 // ============================================================
+// ============================================================
+// 域名分类
+// ============================================================
+function classifyPage(hostname) {
+  var h = hostname || location.hostname;
+
+  if (/zhihu\.com$/.test(h)) return 'blog';
+  if (/jianshu\.com$/.test(h)) return 'blog';
+  if (/medium\.com$/.test(h)) return 'blog';
+  if (/substack\.com$/.test(h)) return 'blog';
+  if (/hashnode\.dev$/.test(h)) return 'blog';
+  if (/dev\.to$/.test(h)) return 'blog';
+  if (/wordpress\.com$/.test(h)) return 'blog';
+
+  if (/bbc\.(com|co\.uk)$/.test(h)) return 'news';
+  if (/cnn\.com$/.test(h)) return 'news';
+  if (/nytimes\.com$/.test(h)) return 'news';
+  if (/wsj\.com$/.test(h)) return 'news';
+  if (/reuters\.com$/.test(h)) return 'news';
+  if (/bloomberg\.com$/.test(h)) return 'news';
+  if (/theguardian\.com$/.test(h)) return 'news';
+
+  if (/techcrunch\.com$/.test(h)) return 'tech';
+  if (/theverge\.com$/.test(h)) return 'tech';
+  if (/arstechnica\.com$/.test(h)) return 'tech';
+  if (/36kr\.com$/.test(h)) return 'tech';
+  if (/sspai\.com$/.test(h)) return 'sspai';
+  if (/hackernews|ycombinator/.test(h)) return 'tech';
+  if (/wired\.com$/.test(h)) return 'tech';
+  if (/engadget\.com$/.test(h)) return 'tech';
+
+  if (/coindesk\.com$/.test(h)) return 'crypto';
+  if (/theblock\.co$/.test(h)) return 'crypto';
+  if (/foresightnews\.pro$/.test(h)) return 'crypto';
+  if (/panewslab\.com$/.test(h)) return 'crypto';
+  if (/odaily\.news$/.test(h)) return 'crypto';
+  if (/theblockbeats\.info$/.test(h)) return 'crypto';
+  if (/cointelegraph\.com$/.test(h)) return 'crypto';
+  if (/decrypt\.co$/.test(h)) return 'crypto';
+  if (/blockworks\.co$/.test(h)) return 'crypto';
+
+  if (/xiaohongshu\.com$/.test(h)) return 'xhs';
+
+  return 'generic';
+}
+
+function getCategorySelectors(category) {
+  var map = {
+    blog: [
+      '.Post-RichText', '.RichContent-inner', '.Post-content',
+      '.article', '.show-content', '._2rhmJa',
+      '.post-body', '.body', '.markup',
+      'article', '.postArticle-content', 'section[data-testid="body"]',
+      '.gh-content', '.post-content',
+    ],
+    news: [
+      '.story-body', '.story-body__inner',
+      '.article__content', '.zn-body__paragraph',
+      '.StoryBodyCompanionColumn',
+      '.article-body', '.article__body',
+    ],
+    tech: [
+      '.article-detail', '.kr_article',
+      '.c-entry-content',
+      '.entry-content', '.article-content',
+      '.post-content',
+    ],
+    sspai: [
+      '.article__main__content', '.wangEditor-txt',
+      '.article-body', '.content-body',
+    ],
+    crypto: [
+      '.ql-editor', '.article-body', '.article-container',
+      '.article-content', '.post-content', '.post-body',
+      '.rich-text', '.detail-content', '.entry-content',
+      '.single-content', '.content-body', '.article-wrapper',
+      '.article-main', '.post-main',
+      '[class*="DetailContent_detail"]', '.news-content',
+    ],
+    xhs: [
+      '.note-detail-mask',              // wraps both .note-container (media) + .note-scroller (text)
+      '.note-content', '.note-text', '.note-desc',
+      '.note-scroller .content', '.note-content-wrapper',
+      '.detail-content', '.content', '.note-detail-content',
+      '[class*="note-text"]', '[class*="NoteContent"]',
+      '.note-container',                // image/video carousel + author section
+    ],
+  };
+  return map[category] || [];
+}
+
+function getCategoryNoiseSelectors(category) {
+  var common = [
+    '.related-posts', '.related-articles', '.recommended-posts',
+    '.read-more', '.more-articles', '.also-read', '.you-may-like',
+    '.advertisement', '.ad-container', '.google-ad', '.ad-slot',
+    '[class*="ad-unit"]', '[id*="google_ads"]',
+    '.newsletter-signup', '.subscribe-form', '.email-capture',
+    '.share-buttons', '.social-share', '.post-share',
+    '.author-bio', '.author-box', '.about-author',
+    '.paywall', '.metered-content', '.subscribe-wall',
+    '.comments', '.comment-section', '#comments', '.discussion',
+    '.comment-list', '.comment-body', '.comment-content', '.comment-area',
+    '.article-comments', '.post-comments', '.comment-wrapper',
+    '.comment-avatar', '.comment-item',
+    '.sidebar', '.related-sidebar',
+  ];
+  var extra = {
+    news: ['.inline-newsletter', '.registration-prompt', '.article-recirc', '.read-next'],
+    tech: ['.inline-newsletter', '.job-board', '.end-article-cta'],
+    sspai: [
+      '.article-side', '.comp__ArticleSide', '.article-banner',
+      '.comment-container', '.comment-list-wrapper', '.comments__feed', '.common__comment__dialog',
+      '.article-actionBar', '.article-footer-cta', '.reward-box', '.support-author',
+      '.mini-program', '.footer-article',
+    ],
+    crypto: [
+      '.price-widget', '.ticker', '.market-data', '.coin-ticker', '.crypto-prices',
+      '.newsletter-cta', '.sponsor-cta', '.article-toc', '.catalog',
+      '.sidebar-nav', '.footer-nav',
+      '.news-recommend', '.news-topic', '.news-btm', '.news-intro',
+    ],
+    xhs: [
+      '.note-interact', '.interact-bar', '.like-bar', '.collect-bar',
+      '.comment-container', '.comment-area', '.note-comments',
+      '.related-notes', '.recommend-notes', '.note-related',
+      '.author-follow', '.follow-btn', '.share-btn',
+      '.bottom-bar', '.note-footer', '.footer-interact',
+      '.note-content-emoji',             // inline emoji images → too large in Notion
+      '.xhs-capsule-widget-container',   // 猜你想搜 CTA widget
+      '.comments-el',                    // comment section
+      '.interaction-divider',            // divider before comments
+      '.note-detail-dropdown',           // menu dropdown
+      '.author-wrapper',                 // author avatar + name (top of page, not content)
+      '.note-detail-follow-btn',         // follow button
+      '.bottom-container',               // date + menu at bottom
+      '.swiper-slide-duplicate',         // Swiper loop clones (first/last slide duplicated)
+      '.video-player-media',             // video player wrapper (image notes use .media-container for carousel)
+      '.player-container',               // video player wrapper
+      '.xgplayer',                       // xgplayer video player
+    ],
+  };
+  return common.concat(extra[category] || []);
+}
+
+// ============================================================
+// JSON-LD 结构化数据提取
+// ============================================================
+function extractJsonLdMeta(doc) {
+  var scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  var meta = {};
+  for (var i = 0; i < scripts.length; i++) {
+    try {
+      var data = JSON.parse(scripts[i].textContent || '');
+      if (data['@graph'] && Array.isArray(data['@graph'])) {
+        for (var j = 0; j < data['@graph'].length; j++) {
+          applyJsonLdItem(data['@graph'][j], meta);
+        }
+      } else {
+        applyJsonLdItem(data, meta);
+      }
+    } catch (e) { /* skip invalid JSON */ }
+  }
+  return meta;
+}
+
+function applyJsonLdItem(item, meta) {
+  var type = item['@type'];
+  if (type === 'Article' || type === 'BlogPosting' || type === 'NewsArticle' || type === 'Report') {
+    if (!meta.author && item.author) {
+      meta.author = typeof item.author === 'string' ? item.author : (item.author.name || '');
+    }
+    if (!meta.publishTime && item.datePublished) meta.publishTime = item.datePublished;
+    if (!meta.description && item.description) meta.description = item.description;
+    if (!meta.headline && item.headline) meta.headline = item.headline;
+  }
+  if (type === 'WebSite' || type === 'Organization') {
+    if (!meta.siteName && item.name) meta.siteName = item.name;
+  }
+  if (type === 'Person' && !meta.author && item.name) {
+    meta.author = item.name;
+  }
+}
+
 function extractGenericContent(doc) {
-  // 尝试找正文容器
-  var selectors = [
-    'article',
-    '[role="main"]',
-    'main',
-    '.post-content',
-    '.entry-content',
-    '.article-content',
-    '#content',
-    '.content',
+  var hostname = location.hostname || '';
+  var category = classifyPage(hostname);
+
+  // 按分类优先级排列 selector：分类专用 → 通用
+  var categorySelectors = getCategorySelectors(category);
+  var genericSelectors = [
+    'article', '[role="main"]', 'main',
+    '.post-content', '.entry-content', '.article-content',
+    '#content', '.content',
     'body',
   ];
+  var selectors = categorySelectors.concat(genericSelectors);
+
+  // 去重
+  var seen = {};
+  selectors = selectors.filter(function(s) {
+    if (seen[s]) return false;
+    seen[s] = true;
+    return true;
+  });
 
   var content = null;
   for (var i = 0; i < selectors.length; i++) {
-    content = doc.querySelector(selectors[i]);
-    if (content && content.textContent.trim().length > 100) break;
-    content = null;
+    var candidate = doc.querySelector(selectors[i]);
+    // body 兜底放宽阈值
+    var minLen = selectors[i] === 'body' ? 200 : 50;
+    if (candidate && candidate.textContent.trim().length > minLen) {
+      content = candidate;
+      break;
+    }
   }
 
   if (!content) {
     return { error: '无法提取正文内容', title: doc.title };
   }
 
-  var clone = content.cloneNode(true);
-  // 简单清理
-  var removeSels = ['script', 'style', 'nav', 'header', 'footer', 'aside', '.sidebar', '.ad'];
-  for (var i = 0; i < removeSels.length; i++) {
-    clone.querySelectorAll(removeSels[i]).forEach(function(el) { el.remove(); });
+  // 如果选到 body，尝试缩窄到正文区域
+  if (content === doc.body) {
+    var narrowSels = ['main', 'article', '[role="main"]', '.article-body', '.article-content', '.post-body', '.entry-content', '.single-content'];
+    for (var n = 0; n < narrowSels.length; n++) {
+      var narrowEl = content.querySelector(narrowSels[n]);
+      if (narrowEl && narrowEl.textContent.trim().length > 100) {
+        content = narrowEl;
+        break;
+      }
+    }
   }
 
-  // 提取通用元数据
-  var meta = extractGenericMeta(doc);
+  // Resolve blob: video URLs from live DOM / page state before cloning
+  // (小红书 xgplayer uses blob: URLs, real URL is in __INITIAL_STATE__ or player config)
+  var origVideos = content.querySelectorAll('video');
+  for (var ovi = 0; ovi < origVideos.length; ovi++) {
+    var oVid = origVideos[ovi];
+    var oBlobSrc = oVid.getAttribute('src') || '';
+    if (!oBlobSrc || oBlobSrc.indexOf('blob:') === 0) {
+      var realUrl = '';
+      // 1. Try currentSrc (may return blob for xgplayer)
+      try { realUrl = oVid.currentSrc || ''; } catch(e) {}
+      // 2. Try source children
+      if (!realUrl || realUrl.indexOf('blob:') === 0) {
+        var oSources = oVid.querySelectorAll('source');
+        for (var osi = 0; osi < oSources.length; osi++) {
+          realUrl = oSources[osi].getAttribute('src') || '';
+          if (realUrl && realUrl.indexOf('blob:') !== 0) break;
+        }
+      }
+      // 3. Try __INITIAL_STATE__ for xiaohongshu / other platforms
+      if (!realUrl || realUrl.indexOf('blob:') === 0) {
+        try {
+          var initState = window.__INITIAL_STATE__;
+          if (initState) {
+            var stateStr = JSON.stringify(initState);
+            // Search for CDN video URLs (mp4, m3u8, h264, etc.)
+            var urlMatch = stateStr.match(/https?:\/\/[^\"\s<>]+\.(?:mp4|m3u8|h264|ts|mov|webm)[^\"\s<>]*/i);
+            if (urlMatch) realUrl = urlMatch[0];
+          }
+        } catch(e) {}
+      }
+      // 4. Fallback: search all script tags for video URLs
+      if (!realUrl || realUrl.indexOf('blob:') === 0) {
+        var scripts = document.querySelectorAll('script');
+        for (var si = 0; si < scripts.length; si++) {
+          var sc = scripts[si].textContent || '';
+          var vm = sc.match(/https?:\/\/[^\"\s<>]+\.(?:mp4|m3u8|h264|ts|mov|webm)[^\"\s<>]*/i);
+          if (vm) { realUrl = vm[0]; break; }
+        }
+      }
+      if (realUrl && realUrl.indexOf('blob:') !== 0) {
+        oVid.setAttribute('src', realUrl);
+      }
+    }
+  }
 
-  // 计算字数
+  var clone = content.cloneNode(true);
+
+  // 基础清理
+  ['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'noscript'].forEach(function(s) {
+    clone.querySelectorAll(s).forEach(function(el) { el.remove(); });
+  });
+
+  // 分类噪声清理
+  var noiseSelectors = getCategoryNoiseSelectors(category);
+  for (var k = 0; k < noiseSelectors.length; k++) {
+    try {
+      clone.querySelectorAll(noiseSelectors[k]).forEach(function(el) { el.remove(); });
+    } catch (e) { /* invalid selector, skip */ }
+  }
+
+  // 图片预处理：lazy load → src，相对路径 → 绝对路径
+  processGenericImages(clone);
+
+  // 综合元数据：JSON-LD → OG meta 标签 → HTML meta
+  var ldMeta = extractJsonLdMeta(doc);
+  var htmlMeta = extractGenericMeta(doc);
+
+  // 合并：JSON-LD 优先，HTML meta 回退
+  var meta = {
+    author: ldMeta.author || htmlMeta.author,
+    publishTime: ldMeta.publishTime || htmlMeta.publishTime,
+    coverImage: htmlMeta.coverImage,
+    description: ldMeta.description || htmlMeta.description,
+    siteName: ldMeta.siteName || htmlMeta.siteName,
+    language: htmlMeta.language,
+    headline: ldMeta.headline || '',
+  };
+
   var bodyText = extractPlainText(clone.innerHTML);
   var wordCount = bodyText ? bodyText.length : 0;
 
   return {
     type: 'generic',
-    title: doc.title || '',
+    category: category,
+    title: meta.headline || doc.title || '',
     author: meta.author,
     publishTime: meta.publishTime,
     coverImage: meta.coverImage,
@@ -894,8 +1512,13 @@ function extractGenericMeta(doc) {
     return el ? (el.content || '').trim() : '';
   }
 
+  var desc = metaContent('meta[property="og:description"]') || metaContent('meta[name="description"]');
+  if (desc.length > 50) {
+    desc = desc.substring(0, 50).replace(/\s+\S*$/, '') + '...';
+  }
+
   return {
-    description: metaContent('meta[property="og:description"]') || metaContent('meta[name="description"]'),
+    description: desc,
     siteName: metaContent('meta[property="og:site_name"]') || (location.hostname || ''),
     language: (doc.documentElement.lang || '').substring(0, 5) || 'unknown',
     author: metaContent('meta[name="author"]') || metaContent('meta[property="article:author"]'),
@@ -1025,6 +1648,48 @@ function cleanImageUrl(url) {
     return u.toString();
   } catch (e) {
     return url.split('#')[0];
+  }
+}
+
+function resolveRelativeUrl(url) {
+  if (!url || url.indexOf('data:') === 0) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  try {
+    return new URL(url, window.location.href).toString();
+  } catch (e) {
+    return '';
+  }
+}
+
+// 通用图片预处理：将 lazy load 属性转为 src，转相对路径为绝对路径
+function processGenericImages(container) {
+  var imgs = container.querySelectorAll('img');
+  for (var i = 0; i < imgs.length; i++) {
+    var img = imgs[i];
+    var realSrc = img.getAttribute('data-src')
+      || img.getAttribute('data-original')
+      || img.getAttribute('data-lazy-src')
+      || img.getAttribute('data-url')
+      || img.getAttribute('data-actualsrc')
+      || img.getAttribute('src')
+      || '';
+
+    realSrc = cleanImageUrl(realSrc);
+    var absoluteUrl = resolveRelativeUrl(realSrc);
+
+    if (!absoluteUrl) {
+      img.remove();
+      continue;
+    }
+
+    img.setAttribute('src', absoluteUrl);
+    img.removeAttribute('data-src');
+    img.removeAttribute('data-original');
+    img.removeAttribute('data-lazy-src');
+    img.removeAttribute('data-url');
+    img.removeAttribute('srcset');
+    img.removeAttribute('data-srcset');
+    img.removeAttribute('loading');
   }
 }
 
