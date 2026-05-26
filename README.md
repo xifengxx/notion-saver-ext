@@ -2,9 +2,26 @@
 
 Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文章的稳定完整抓取，替代 Notion Web Clipper（不稳定）和 Copy to Notion（付费）。
 
-当前版本：**v0.5.1**
+当前版本：**v0.5.3**
 
 ## 变更日志
+
+### v0.5.3
+- 新增：两阶段保存 — Phase 1 秒级保存（文字 + external URL 图片），Phase 2 后台异步替换为 Notion 托管
+- 新增：external_url 导入模式（优先 Notion 服务器直取，单次 API 调用）+ 二进制上传回退
+- 新增：Phase 2 任务队列 — 多页面连续保存时串行处理，避免并发覆盖和任务丢失
+- 新增：SW 终止恢复 — 图片替换进度持久化，Service Worker 重启后自动续传
+- 新增：URL 三层匹配（精确 → 解码比较 → 按位置回退），解决 Notion 存储 URL 与原始 URL 不一致导致匹配失败
+- 修复：SW 恢复时 deleteBlock 遇到已归档 block 报错（blockDeleted 标记 + "archived" 容错）
+- 修复：fetchDatabaseSchema 保存到页面时误报 error（预期行为降级为 info）
+
+### v0.5.2
+- 新增：渐进式加载 — 4 路独立 fetch_pages_chunk 消息，逐条返回即刻渲染
+- 新增：滚动分页 — 非搜索模式下拉框滚动到底加载更多（上限 30 条）
+- 新增：搜索 300ms 防抖
+- 新增：永久保存目标列表 — 用户保存过的页面不受 Notion API 100 条限制，始终可搜索
+- 优化：搜索排名 — 本地 indexOf 优先 + workspace 页面排前，API 结果补充
+- 修复：下拉框关闭后重新打开，残留的搜索关键词不清除
 
 ### v0.5.1
 - 新增：自动字段匹配 — 保存到数据库时自动加载 schema，按属性名/类型匹配 9 个元数据字段（URL/作者/发布时间/摘要/网站名称/语言/关键词/封面图/字数），无需手动配置
