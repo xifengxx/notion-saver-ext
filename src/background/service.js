@@ -126,6 +126,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
           sendResponse({ error: '无法连接到页面，请刷新页面后重试', title: '' });
           return;
         }
+        logExtractDiagnostics(response);
         sendResponse(response);
       });
     });
@@ -1929,14 +1930,25 @@ function extractFromTab(tab) {
               resolve({ error: '无法连接到页面，请刷新页面后重试', title: '' });
               return;
             }
+            logExtractDiagnostics(retryResponse);
             resolve(retryResponse || { error: '提取失败', title: '' });
           });
         });
         return;
       }
+      logExtractDiagnostics(response);
       resolve(response || { error: '提取失败', title: '' });
     });
   });
+}
+
+function logExtractDiagnostics(response) {
+  if (!response || response.error) return;
+  console.log('[NotionSnap] VIDEO DIAG:', response._videoDebug || '(no debug info)');
+  console.log('[NotionSnap] VIDEO EMBEDS COUNT:', response._videoEmbedsCount || 0);
+  if (response._videoDebug && response._videoDebug.indexOf('videos=0') !== -1 && response._videoDebug.indexOf('iframes=0') !== -1) {
+    console.log('[NotionSnap] VIDEO: No video or iframe elements found on page');
+  }
 }
 
 function showSaveNotification(title, message, pageUrl) {

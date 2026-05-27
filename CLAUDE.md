@@ -6,8 +6,8 @@ Chrome 浏览器扩展（Manifest V3），一键保存任意网页到 Notion。�
 
 ## 版本信息
 
-- **当前版本**：v0.5.2（2026-05-25）
-- **Phase 状态**：0-5 全部完成，v0.5.2 搜索优化已上线，详见 ROADMAP.md
+- **当前版本**：v0.6.1（2026-05-27）
+- **Phase 状态**：Phase 0-6 全部完成。Phase 6 — Twitter/GitHub/Medium/Substack 独立解析 + 视频平台支持 + 视频占位符修复，详见 ROADMAP.md
 
 ## 技术栈
 

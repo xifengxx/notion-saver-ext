@@ -116,6 +116,23 @@ function videoBlock(url) {
   };
 }
 
+function embedBlock(url) {
+  return {
+    type: 'embed',
+    embed: { url: url },
+  };
+}
+
+function bookmarkBlock(url, title) {
+  return {
+    type: 'bookmark',
+    bookmark: {
+      url: url,
+      caption: title ? [{ type: 'text', text: { content: title } }] : [],
+    },
+  };
+}
+
 // ============================================================
 // HTML 实体解码
 // ============================================================
@@ -500,6 +517,13 @@ function processElement(el, tag, blocks) {
     if (vSrc && vSrc.indexOf('blob:') !== 0) {
       blocks.push(videoBlock(resolveRelativeUrl(vSrc)));
     }
+    // blob URL 或无 src → 提取 poster 作为图片兜底
+    if (!vSrc || vSrc.indexOf('blob:') === 0) {
+      var poster = el.getAttribute('poster') || '';
+      if (poster) {
+        blocks.push(imageBlock(resolveRelativeUrl(poster), ''));
+      }
+    }
   }
   // 表格 → Notion table block
   else if (tag === 'table') {
@@ -772,6 +796,30 @@ function finalizeExtractedData(data) {
     }
     blocks = splitBlocks;
 
+    // 视频嵌入：将文章内嵌视频 URL 作为 block 插入正文前
+    if (data.videoEmbeds && data.videoEmbeds.length > 0) {
+      console.log('[NotionSnap] Finalize: processing', data.videoEmbeds.length, 'video embeds:', data.videoEmbeds);
+      var veBlocks = [dividerBlock()];
+      for (var vei = 0; vei < data.videoEmbeds.length; vei++) {
+        var ve = data.videoEmbeds[vei];
+        var veUrl = ve.url;
+        var veSource = ve.source || '';
+        // YouTube/Bilibili/TikTok → embed block（Notion 前端可渲染嵌入式播放器）
+        if (veUrl.indexOf('youtube.com') !== -1 || veUrl.indexOf('youtu.be') !== -1 || veUrl.indexOf('bilibili.com') !== -1 || veUrl.indexOf('tiktok.com') !== -1) {
+          veBlocks.push(embedBlock(veUrl));
+        } else {
+          // 其他平台（微信视频号/小红书/Douyin/Twitter 等）→ 段落 + 可点击链接
+          var label = '视频链接';
+          if (veSource === 'wechat_video') label = '微信视频号';
+          veBlocks.push(paragraphBlock([
+            { type: 'text', text: { content: '[' + label + '] ', link: { url: veUrl } } }
+          ]));
+        }
+      }
+      veBlocks.push(dividerBlock());
+      blocks = veBlocks.concat(blocks);
+    }
+
     data.blocks = blocks;
     console.log('[NotionSnap] Extracted', blocks.length, 'blocks');
     if (blocks.length === 0) {
@@ -782,6 +830,8 @@ function finalizeExtractedData(data) {
     var keywordText = (data.title || '') + ' ' + (bodyText || '');
     data.keywords = extractKeywords(keywordText, 5);
   }
+  data._videoDebug = diagnoseVideoElements(document);
+  data._videoEmbedsCount = data.videoEmbeds ? data.videoEmbeds.length : 0;
   return data;
 }
 
@@ -926,6 +976,11 @@ function extractContent() {
     return parseGitHubPage(document);
   }
 
+  // 视频平台页面（YouTube / Bilibili / TikTok / Douyin）
+  if (isVideoPlatformPage()) {
+    return parseVideoPlatformPage(document);
+  }
+
   // 通用网页
   return extractGenericContent(document);
 }
@@ -946,6 +1001,447 @@ function isTwitterPage() {
 
 function isGitHubPage() {
   return (window.location.hostname || '') === 'github.com';
+}
+
+// ============================================================
+// 视频平台检测 & URL 解析
+// ============================================================
+
+// 视频平台域名匹配表
+var VIDEO_PLATFORMS = {
+  'youtube.com': {
+    name: 'YouTube',
+    // iframe embed → canonical page URL
+    canonical: function(url) {
+      var id = '';
+      // youtube.com/embed/VIDEO_ID
+      var m = url.match(/\/embed\/([a-zA-Z0-9_-]{11})/);
+      if (m) id = m[1];
+      if (id) return 'https://www.youtube.com/watch?v=' + id;
+      return url;
+    },
+  },
+  'youtu.be': {
+    name: 'YouTube',
+    canonical: function(url) {
+      var m = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+      if (m) return 'https://www.youtube.com/watch?v=' + m[1];
+      return url;
+    },
+  },
+  'bilibili.com': {
+    name: 'Bilibili',
+    canonical: function(url) {
+      // player.bilibili.com/player.html?bvid=xxx → video page
+      var mBV = url.match(/bvid=([a-zA-Z0-9]+)/);
+      if (mBV) return 'https://www.bilibili.com/video/' + mBV[1];
+      var mAV = url.match(/aid=([0-9]+)/);
+      if (mAV) return 'https://www.bilibili.com/video/av' + mAV[1];
+      return url;
+    },
+  },
+  'tiktok.com': {
+    name: 'TikTok',
+    canonical: function(url) {
+      // tiktok.com/embed/v2/ID → canonical, but we don't have username
+      var m = url.match(/\/embed\/v2\/([0-9]+)/);
+      if (m) return 'https://www.tiktok.com/@unknown/video/' + m[1];
+      return url;
+    },
+  },
+  'douyin.com': {
+    name: 'Douyin',
+    canonical: function(url) {
+      return url;
+    },
+  },
+};
+
+function getVideoPlatform(hostname) {
+  for (var domain in VIDEO_PLATFORMS) {
+    if (VIDEO_PLATFORMS.hasOwnProperty(domain) && hostname.indexOf(domain) !== -1) {
+      return { domain: domain, info: VIDEO_PLATFORMS[domain] };
+    }
+  }
+  return null;
+}
+
+function isVideoURL(href) {
+  if (!href || typeof href !== 'string') return false;
+  try {
+    var u = new URL(href, window.location.origin);
+    return getVideoPlatform(u.hostname) !== null;
+  } catch (e) {
+    return false;
+  }
+}
+
+function canonicalVideoURL(href) {
+  if (!href) return '';
+  try {
+    var u = new URL(href, window.location.origin);
+    var plat = getVideoPlatform(u.hostname);
+    if (plat) return plat.info.canonical(u.href);
+  } catch (e) { /* ignore */ }
+  return href;
+}
+
+function isVideoPlatformPage() {
+  var h = window.location.hostname || '';
+  return getVideoPlatform(h) !== null;
+}
+
+function parseVideoPlatformPage(doc) {
+  var pageUrl = window.location.href;
+  var canonicalUrl = canonicalVideoURL(pageUrl);
+  var plat = getVideoPlatform(window.location.hostname);
+  var platformName = plat ? plat.info.name : 'Video';
+
+  // 提取元数据 — 优先 document.title（SPA 导航时 meta 标签可能过期）
+  var title = (doc.title || '').trim();
+  // 去掉平台后缀
+  if (title.indexOf(' - YouTube') !== -1) {
+    title = title.replace(/\s*-\s*YouTube\s*$/, '');
+  } else if (title.indexOf(' - Bilibili') !== -1) {
+    title = title.replace(/\s*-\s*Bilibili\s*$/, '');
+  } else if (title.indexOf('_哔哩哔哩_bilibili') !== -1) {
+    title = title.replace(/\s*_哔哩哔哩_bilibili\s*$/, '');
+  }
+  if (!title) {
+    var ogTitle = doc.querySelector('meta[property="og:title"]');
+    if (ogTitle) title = (ogTitle.content || '').trim();
+  }
+
+  var author = '';
+  // YouTube
+  var authorLink = doc.querySelector('link[itemprop="name"]') || doc.querySelector('meta[name="author"]');
+  if (authorLink) author = (authorLink.content || authorLink.textContent || '').trim();
+  // Bilibili: og:description 中可能包含 UP 主信息
+  if (!author) {
+    var ogDesc = doc.querySelector('meta[property="og:description"]');
+    if (ogDesc && platformName === 'Bilibili') {
+      var desc = (ogDesc.content || '');
+      var upMatch = desc.match(/UP主[：:]\s*([^,，;；\n]+)/);
+      if (upMatch) author = upMatch[1].trim();
+    }
+  }
+
+  var description = '';
+  var metaDesc = doc.querySelector('meta[property="og:description"]') || doc.querySelector('meta[name="description"]');
+  if (metaDesc) description = (metaDesc.content || '').trim().substring(0, 300);
+
+  var coverImage = '';
+  // YouTube: 直接从页面 URL 提取 video ID 构造缩略图（绕过 SPA meta 过期问题）
+  if (platformName === 'YouTube') {
+    var ytId = '';
+    var ytMatch = pageUrl.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+    if (ytMatch) ytId = ytMatch[1];
+    if (!ytId) { var shortMatch = pageUrl.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/); if (shortMatch) ytId = shortMatch[1]; }
+    if (!ytId) { var embedMatch = pageUrl.match(/\/embed\/([a-zA-Z0-9_-]{11})/); if (embedMatch) ytId = embedMatch[1]; }
+    if (ytId) coverImage = 'https://img.youtube.com/vi/' + ytId + '/maxresdefault.jpg';
+  }
+  if (!coverImage) {
+    var linkImg = doc.querySelector('link[rel="image_src"]');
+    if (linkImg) coverImage = (linkImg.getAttribute('href') || '').trim();
+  }
+  if (!coverImage) {
+    var ogImg = doc.querySelector('meta[property="og:image"]');
+    if (ogImg) coverImage = (ogImg.content || '').trim();
+  }
+
+  // 构建 blocks
+  var blocks = [];
+
+  // Douyin 禁止 iframe 嵌入 → 使用 bookmark 兜底
+  if (window.location.hostname.indexOf('douyin.com') !== -1) {
+    blocks.push(bookmarkBlock(canonicalUrl, title));
+  } else {
+    blocks.push(embedBlock(canonicalUrl));
+  }
+
+  // 标题
+  if (title) {
+    blocks.push(headingBlock(2, [{ type: 'text', text: { content: title } }]));
+  }
+
+  // 作者 + 平台
+  var metaLine = '';
+  if (author) metaLine += author;
+  if (platformName) metaLine += (metaLine ? ' · ' : '') + platformName;
+  if (metaLine) {
+    blocks.push(paragraphBlock([{ type: 'text', text: { content: metaLine } }]));
+  }
+
+  // 简介
+  if (description) {
+    blocks.push(paragraphBlock([{ type: 'text', text: { content: description } }]));
+  }
+
+  // 封面图
+  if (coverImage) {
+    blocks.push(imageBlock(resolveRelativeUrl(coverImage), ''));
+  }
+
+  // 分隔线
+  blocks.push(dividerBlock());
+
+  return {
+    type: 'video_page',
+    title: title,
+    author: author,
+    url: canonicalUrl,
+    platform: platformName,
+    coverImage: coverImage,
+    description: description,
+    blocks: blocks,
+  };
+}
+
+// 扫描容器中的视频 iframe 和链接，返回 embed URL 列表
+// 从小红书页面提取视频 note 的 media URL
+// CSP 阻止内联脚本注入，直接从页面 HTML 搜索 XHS CDN 视频 URL 模式
+function extractXhsVideoUrl() {
+  try {
+    var html = document.documentElement.innerHTML || '';
+
+    // 方法1：搜索所有 .xhscdn.com CDN URL（覆盖 sns-video-v2 / sns-video-qc / sns-video-hw 等变体）
+    var cdnMatch = html.match(/https?:\/\/[^.\s"'<>]*\.xhscdn\.com\/[^"\s<>]+/i);
+    if (cdnMatch) {
+      var url = cdnMatch[0].replace(/&amp;/g, '&').replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+      if (url && url.indexOf('.xhscdn.com/') !== -1 && url.length > 40) {
+        console.log('[NotionSnap] extractXhsVideoUrl: found CDN URL in HTML source:', url.substring(0, 80));
+        return url;
+      }
+    }
+    // 方法2：搜索 masterUrl / videoUrl / playUrl 等 JSON key（服务端渲染的 __INITIAL_STATE__ 或内联 script）
+    var keyPatterns = [
+      /"masterUrl"\s*:\s*"(https?:\/\/[^"]+)"/i,
+      /"videoUrl"\s*:\s*"(https?:\/\/[^"]+)"/i,
+      /"playUrl"\s*:\s*"(https?:\/\/[^"]+)"/i,
+      /"streamUrl"\s*:\s*"(https?:\/\/[^"]+)"/i,
+      /"h264"\s*:\s*\[\s*\{[^}]*"masterUrl"\s*:\s*"(https?:\/\/[^"]+)"/i,
+    ];
+    for (var kp = 0; kp < keyPatterns.length; kp++) {
+      var kpMatch = html.match(keyPatterns[kp]);
+      if (kpMatch) {
+        var kpUrl = kpMatch[1].replace(/&amp;/g, '&').replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+        if (kpUrl && kpUrl.length > 40) {
+          console.log('[NotionSnap] extractXhsVideoUrl: found via key pattern', kp, ':', kpUrl.substring(0, 80));
+          return kpUrl;
+        }
+      }
+    }
+    // 方法3：从内联 <script> 中提取
+    var scripts = document.querySelectorAll('script:not([src])');
+    for (var si = 0; si < scripts.length; si++) {
+      var text = scripts[si].textContent || '';
+      var sMatch = text.match(/https?:\/\/[^.\s"'<>]*\.xhscdn\.com\/[^"\s<>]+/i);
+      if (sMatch) {
+        var sUrl = sMatch[0].replace(/&amp;/g, '&').replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+        if (sUrl && sUrl.length > 40) {
+          console.log('[NotionSnap] extractXhsVideoUrl: found CDN URL in script tag:', sUrl.substring(0, 80));
+          return sUrl;
+        }
+      }
+    }
+    // 方法4：尝试通过 window 访问（隔离环境可能不可用）
+    try {
+      var initState = window.__INITIAL_STATE__;
+      if (initState && initState.note && initState.note.noteDetailMap) {
+        var noteMap = initState.note.noteDetailMap;
+        var noteKeys = Object.keys(noteMap);
+        for (var nk = 0; nk < noteKeys.length; nk++) {
+          var noteData = noteMap[noteKeys[nk]] && noteMap[noteKeys[nk]].note;
+          if (!noteData || noteData.type !== 'video') continue;
+          var videoData = noteData.video;
+          if (!videoData || !videoData.media || !videoData.media.stream) continue;
+          var stream = videoData.media.stream;
+          var candidates = stream.h264 || stream.h265 || stream.h266 || [];
+          for (var ci = 0; ci < candidates.length; ci++) {
+            var vUrl = candidates[ci].masterUrl || candidates[ci].url || '';
+            if (vUrl) { console.log('[NotionSnap] extractXhsVideoUrl: found via window access'); return vUrl; }
+          }
+        }
+      }
+    } catch(e) {}
+    console.log('[NotionSnap] extractXhsVideoUrl: no video URL found — note type may not be video, or URL not in HTML source');
+  } catch(e) { console.log('[NotionSnap] extractXhsVideoUrl: ERROR', e.message); }
+  return null;
+}
+
+function collectVideoEmbeds(container) {
+  if (!container) return [];
+  var results = [];
+  var seen = {};
+
+  // 1. 扫描 <iframe> 标签
+  var iframes = container.querySelectorAll('iframe');
+  var step1Count = 0;
+  for (var fi = 0; fi < iframes.length; fi++) {
+    var src = iframes[fi].getAttribute('src') || iframes[fi].getAttribute('data-src') || '';
+    if (!src) continue;
+    try {
+      var canonical = canonicalVideoURL(src);
+      if (canonical && canonical !== src && !seen[canonical]) {
+        seen[canonical] = true;
+        results.push({ url: canonical, source: 'iframe', originalUrl: src });
+        step1Count++;
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // 2. 扫描 <a> 标签中的视频平台链接（作为补充，不替代 iframe 检测）
+  var links = container.querySelectorAll('a[href]');
+  var step2Count = 0;
+  for (var li = 0; li < links.length; li++) {
+    var href = links[li].getAttribute('href') || '';
+    if (!href || seen[href]) continue;
+    try {
+      var resolved = new URL(href, window.location.origin).href;
+      if (isVideoURL(resolved)) {
+        var canonical = canonicalVideoURL(resolved);
+        if (canonical && !seen[canonical]) {
+          seen[canonical] = true;
+          results.push({ url: canonical, source: 'link', originalUrl: href });
+          step2Count++;
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // 3. 微信公众号视频号检测：<mp-common-videosnap> 自定义元素
+  var videoSnaps = container.querySelectorAll('mp-common-videosnap');
+  var step3Count = 0;
+  for (var vs = 0; vs < videoSnaps.length; vs++) {
+    var snapEl = videoSnaps[vs];
+    var snapUrl = '';
+    try { snapUrl = snapEl.url || ''; } catch(e) {}
+    if (!snapUrl) snapUrl = snapEl.getAttribute('url') || snapEl.getAttribute('data-url') || '';
+    if (!snapUrl) {
+      var snapRoot = snapEl.shadowRoot;
+      var snapSearchRoot = snapRoot || snapEl;
+      var snapIframes = snapSearchRoot.querySelectorAll('iframe');
+      for (var si = 0; si < snapIframes.length; si++) {
+        var siSrc = snapIframes[si].getAttribute('src') || '';
+        if (siSrc) { snapUrl = siSrc; break; }
+      }
+      if (!snapUrl) {
+        var snapLinks = snapSearchRoot.querySelectorAll('a[href]');
+        for (var sl = 0; sl < snapLinks.length; sl++) {
+          var slHref = snapLinks[sl].getAttribute('href') || '';
+          if (slHref && isVideoURL(slHref)) {
+            snapUrl = slHref;
+            break;
+          }
+        }
+      }
+    }
+    if (snapUrl && !seen[snapUrl]) {
+      seen[snapUrl] = true;
+      results.push({ url: snapUrl, source: 'wechat_video', originalUrl: snapUrl });
+      step3Count++;
+    }
+  }
+
+  // 4. xgplayer / 小红书等自定义视频播放器检测
+  var xgPlayers = container.querySelectorAll('.xgplayer, [class*="xgplayer"], .video-player-media, .player-container');
+  var step4Count = 0;
+  for (var xp = 0; xp < xgPlayers.length; xp++) {
+    var xgEl = xgPlayers[xp];
+    var xgUrl = '';
+    try { xgUrl = xgEl.url || xgEl.src || xgEl.videoUrl || ''; } catch(e) {}
+    if (!xgUrl) xgUrl = xgEl.getAttribute('data-url') || xgEl.getAttribute('data-src') || xgEl.getAttribute('url') || '';
+    if (xgUrl && !seen[xgUrl] && isVideoURL(xgUrl)) {
+      seen[xgUrl] = true;
+      results.push({ url: canonicalVideoURL(xgUrl), source: 'xgplayer', originalUrl: xgUrl });
+      step4Count++;
+      continue;
+    }
+    var xgSearchRoot = xgEl.shadowRoot || xgEl;
+    var xgVideos = xgSearchRoot.querySelectorAll('video');
+    for (var xv = 0; xv < xgVideos.length; xv++) {
+      var xvSrc = xgVideos[xv].getAttribute('src') || '';
+      try { if (!xvSrc) xvSrc = xgVideos[xv].currentSrc || ''; } catch(e) {}
+      if (xvSrc && xvSrc.indexOf('blob:') !== 0 && !seen[xvSrc]) {
+        seen[xvSrc] = true;
+        results.push({ url: xvSrc, source: 'xgplayer_video', originalUrl: xvSrc });
+        step4Count++;
+      }
+    }
+    var xgSources = xgSearchRoot.querySelectorAll('source[src]');
+    for (var xs = 0; xs < xgSources.length; xs++) {
+      var xgSrc = xgSources[xs].getAttribute('src') || '';
+      if (xgSrc && xgSrc.indexOf('blob:') !== 0 && !seen[xgSrc]) {
+        seen[xgSrc] = true;
+        results.push({ url: xgSrc, source: 'xgplayer_source', originalUrl: xgSrc });
+        step4Count++;
+      }
+    }
+    var xgIframes = xgSearchRoot.querySelectorAll('iframe[src]');
+    for (var xi = 0; xi < xgIframes.length; xi++) {
+      var xgIframeSrc = xgIframes[xi].getAttribute('src') || '';
+      if (xgIframeSrc && !seen[xgIframeSrc]) {
+        var xgCanonical = canonicalVideoURL(xgIframeSrc);
+        if (xgCanonical) {
+          seen[xgCanonical] = true;
+          results.push({ url: xgCanonical, source: 'xgplayer_iframe', originalUrl: xgIframeSrc });
+          step4Count++;
+        }
+      }
+    }
+  }
+
+  // 5. 扫描普通 <video> 元素（不在 xgplayer 容器内的，如微信公众号视频播放器）
+  var allVideos = container.querySelectorAll('video');
+  var step5Count = 0;
+  for (var avi = 0; avi < allVideos.length; avi++) {
+    var avEl = allVideos[avi];
+    var avSrc = avEl.getAttribute('src') || '';
+    if (!avSrc) {
+      try { avSrc = avEl.currentSrc || ''; } catch(e) {}
+    }
+    if (avSrc && avSrc.indexOf('blob:') !== 0 && !seen[avSrc]) {
+      seen[avSrc] = true;
+      results.push({ url: avSrc, source: 'video_element', originalUrl: avSrc });
+      step5Count++;
+    }
+    // 检查 <source> 子元素
+    if (!avSrc || avSrc.indexOf('blob:') === 0) {
+      var avSources = avEl.querySelectorAll('source[src]');
+      for (var avs = 0; avs < avSources.length; avs++) {
+        var avsSrc = avSources[avs].getAttribute('src') || '';
+        if (avsSrc && avsSrc.indexOf('blob:') !== 0 && !seen[avsSrc]) {
+          seen[avsSrc] = true;
+          results.push({ url: avsSrc, source: 'video_source', originalUrl: avsSrc });
+          step5Count++;
+        }
+      }
+    }
+  }
+
+  console.log('[NotionSnap] collectVideoEmbeds: step1(iframe)=', step1Count, 'step2(link)=', step2Count, 'step3(wechat)=', step3Count, 'step4(xgplayer)=', step4Count, 'step5(video)=', step5Count, 'total=', results.length);
+  return results;
+}
+
+// 诊断：扫描页面所有视频相关元素，返回字符串摘要（注入到提取结果，在 SW 日志可见）
+function diagnoseVideoElements(doc) {
+  var d = doc || document;
+  var info = [];
+  info.push('videos=' + d.querySelectorAll('video').length);
+  info.push('iframes=' + d.querySelectorAll('iframe').length);
+  info.push('mp-videosnap=' + d.querySelectorAll('mp-common-videosnap').length);
+  info.push('xgplayer=' + d.querySelectorAll('.xgplayer, [class*="xgplayer"]').length);
+  info.push('video-player=' + d.querySelectorAll('.video-player-media, .player-container').length);
+  info.push('tweet-video=' + d.querySelectorAll('[data-testid="videoComponent"], [data-testid="videoPlayer"]').length);
+  // 检查 iframe 是否有视频平台 URL
+  var iframes = d.querySelectorAll('iframe[src]');
+  var vidIframes = [];
+  for (var di = 0; di < iframes.length; di++) {
+    var difSrc = iframes[di].getAttribute('src') || '';
+    if (difSrc && isVideoURL(difSrc)) vidIframes.push(difSrc.substring(0, 80));
+  }
+  if (vidIframes.length > 0) info.push('vid-iframes=' + vidIframes.join('|'));
+  return info.join('; ');
 }
 
 // 知乎问答页：仅展开问题描述和回答中的折叠内容，不触发页面其他按钮
@@ -1159,10 +1655,13 @@ function processZhihuImages(container, doc) {
 // Twitter/X 专用解析
 // ============================================================
 function parseTwitterPage(doc) {
+  console.log('[NotionSnap] parseTwitterPage: starting');
   var primaryColumn = doc.querySelector('div[data-testid="primaryColumn"]');
   var searchArea = primaryColumn || doc;
   var tweets = searchArea.querySelectorAll('article[data-testid="tweet"]');
+  console.log('[NotionSnap] parseTwitterPage: found', tweets.length, 'tweet articles');
   var container = doc.createElement('div');
+  var videoTweetUrls = [];
 
   var title = '';
   var author = '';
@@ -1224,18 +1723,60 @@ function parseTwitterPage(doc) {
       }
     }
 
-    // 推文视频
-    var videoEls = tweet.querySelectorAll('[data-testid="videoComponent"] video, [data-testid="videoPlayer"] video');
-    for (var vi = 0; vi < videoEls.length; vi++) {
-      var vSrc = videoEls[vi].getAttribute('src') || '';
-      if (!vSrc) {
-        try { vSrc = videoEls[vi].currentSrc || ''; } catch(e) {}
+    // 推文视频 — 直接检测 <video> 元素（不依赖 data-testid）
+    var videoEls = tweet.querySelectorAll('video');
+    console.log('[NotionSnap] parseTwitterPage: tweet #', t, 'has', videoEls.length, 'video elements');
+    var hasVideo = videoEls.length > 0;
+    var vSrc = '';
+    if (hasVideo) {
+      for (var vi = 0; vi < videoEls.length; vi++) {
+        vSrc = videoEls[vi].getAttribute('src') || '';
+        if (!vSrc) {
+          try { vSrc = videoEls[vi].currentSrc || ''; } catch(e) {}
+        }
+        console.log('[NotionSnap] parseTwitterPage: video #', vi, 'src:', (vSrc || '(none)').substring(0, 100));
+        if (vSrc && vSrc.indexOf('blob:') !== 0) break;
       }
-      if (vSrc) {
-        var vid = doc.createElement('video');
-        vid.setAttribute('src', vSrc);
-        container.appendChild(vid);
+    }
+    // 备用：使用旧 data-testid 选择器
+    if (!hasVideo) {
+      var legacyVideo = tweet.querySelector('[data-testid="videoComponent"], [data-testid="videoPlayer"]');
+      if (legacyVideo) {
+        hasVideo = true;
+        var legacyVideos = legacyVideo.querySelectorAll('video');
+        for (var lv = 0; lv < legacyVideos.length; lv++) {
+          vSrc = legacyVideos[lv].getAttribute('src') || '';
+          if (!vSrc) { try { vSrc = legacyVideos[lv].currentSrc || ''; } catch(e) {} }
+          if (vSrc && vSrc.indexOf('blob:') !== 0) break;
+        }
+        console.log('[NotionSnap] parseTwitterPage: found video via legacy selector, src:', (vSrc || '(none)').substring(0, 100));
       }
+    }
+    if (vSrc && vSrc.indexOf('blob:') !== 0) {
+      var vid = doc.createElement('video');
+      vid.setAttribute('src', vSrc);
+      container.appendChild(vid);
+      console.log('[NotionSnap] parseTwitterPage: added video block with src');
+    } else if (hasVideo) {
+      // blob URL 或无法获取 → 收集推文链接，后续用 bookmark
+      var tweetLink = tweet.querySelector('a[href*="/status/"]');
+      console.log('[NotionSnap] parseTwitterPage: blob video, tweet link found:', !!tweetLink);
+      if (tweetLink) {
+        var tUrl = tweetLink.getAttribute('href') || '';
+        if (tUrl && tUrl.indexOf('/') === 0) {
+          tUrl = 'https://x.com' + tUrl;
+        }
+        console.log('[NotionSnap] parseTwitterPage: tweet URL:', tUrl);
+        if (tUrl && videoTweetUrls.indexOf(tUrl) === -1) {
+          videoTweetUrls.push(tUrl);
+        }
+      }
+      var tva = doc.createElement('p');
+      var tvaSpan = doc.createElement('span');
+      tvaSpan.textContent = '[视频推文]';
+      tvaSpan.setAttribute('style', 'color: #0066ff; font-weight: bold');
+      tva.appendChild(tvaSpan);
+      container.appendChild(tva);
     }
 
     // 推文间 divider
@@ -1596,6 +2137,21 @@ function parseWechatArticle(doc) {
   }
 
   var clone = content.cloneNode(true);
+
+  // 视频占位符：必须在 cleanWechatElements 之前执行，因为 .video_iframe 会被当作噪声删除
+  var wechatVideoSelectors = ['video', 'mp-common-videosnap', '.mp-common-videosnap', '.video_iframe', '[class*="video-player"]'];
+  for (var wvs = 0; wvs < wechatVideoSelectors.length; wvs++) {
+    var wvEls = clone.querySelectorAll(wechatVideoSelectors[wvs]);
+    for (var wve = 0; wve < wvEls.length; wve++) {
+      var wvPlaceholder = doc.createElement('p');
+      var wvSpan = doc.createElement('span');
+      wvSpan.textContent = '[视频]';
+      wvSpan.setAttribute('style', 'color: #0066ff; font-weight: bold');
+      wvPlaceholder.appendChild(wvSpan);
+      try { wvEls[wve].parentNode.replaceChild(wvPlaceholder, wvEls[wve]); } catch(e) {}
+    }
+  }
+
   cleanWechatElements(clone);
   processWechatImages(clone);
   var meta = extractWechatMeta(doc);
@@ -1775,9 +2331,9 @@ function getCategoryNoiseSelectors(category) {
       '.note-detail-follow-btn',         // follow button
       '.bottom-container',               // date + menu at bottom
       '.swiper-slide-duplicate',         // Swiper loop clones (first/last slide duplicated)
-      '.video-player-media',             // video player wrapper (image notes use .media-container for carousel)
-      '.player-container',               // video player wrapper
-      '.xgplayer',                       // xgplayer video player
+      '.swiper-button-prev',             // Swiper nav arrows
+      '.swiper-button-next',             // Swiper nav arrows
+      '.swiper-pagination',              // Swiper dots
     ],
   };
   return common.concat(extra[category] || []);
@@ -1874,6 +2430,7 @@ function extractGenericContent(doc) {
   // Resolve blob: video URLs from live DOM / page state before cloning
   // (小红书 xgplayer uses blob: URLs, real URL is in __INITIAL_STATE__ or player config)
   var origVideos = content.querySelectorAll('video');
+  var blobResolved = 0;
   for (var ovi = 0; ovi < origVideos.length; ovi++) {
     var oVid = origVideos[ovi];
     var oBlobSrc = oVid.getAttribute('src') || '';
@@ -1895,9 +2452,19 @@ function extractGenericContent(doc) {
           var initState = window.__INITIAL_STATE__;
           if (initState) {
             var stateStr = JSON.stringify(initState);
-            // Search for CDN video URLs (mp4, m3u8, h264, etc.)
+            // 3a. CDN video URLs with file extensions (mp4, m3u8, h264, etc.)
             var urlMatch = stateStr.match(/https?:\/\/[^\"\s<>]+\.(?:mp4|m3u8|h264|ts|mov|webm)[^\"\s<>]*/i);
             if (urlMatch) realUrl = urlMatch[0];
+            // 3b. Key-based extraction: "videoUrl", "video_url", "playUrl", etc.
+            if (!realUrl) {
+              var keyMatch = stateStr.match(/"(?:videoUrl|video_url|playUrl|play_url|source_url|streamUrl|hls_url)"\s*:\s*"(https?:\/\/[^"]+)"/i);
+              if (keyMatch) realUrl = keyMatch[1].replace(/\\\//g, '/');
+            }
+            // 3c. XHS/CDN stream URLs (signed URLs without file extensions)
+            if (!realUrl) {
+              var cdnMatch = stateStr.match(/https?:\/\/(?:sns-video|video)[^.\s\"<>]*\.xhscdn\.com\/[^\"\s<>]+/i);
+              if (cdnMatch) realUrl = cdnMatch[0];
+            }
           }
         } catch(e) {}
       }
@@ -1912,8 +2479,22 @@ function extractGenericContent(doc) {
       }
       if (realUrl && realUrl.indexOf('blob:') !== 0) {
         oVid.setAttribute('src', realUrl);
+        blobResolved++;
       }
     }
+  }
+  if (origVideos.length > 0) console.log('[NotionSnap] extractGenericContent: blob resolution resolved', blobResolved, '/', origVideos.length, 'video(s)');
+
+  // 收集文章内嵌视频（iframe/链接 → embed block URL），在 clone 和清理之前
+  // XHS 例外：CDN 链接需 Referer/Cookie 认证，直接访问返回 JS 挑战页，跳过 URL 收集
+  var videoEmbeds = [];
+  if (category === 'xhs') {
+    console.log('[NotionSnap] extractGenericContent: XHS category, skipping video URL collection (CDN auth required)');
+  } else {
+    console.log('[NotionSnap] extractGenericContent: content area video diagnostics — videos:', content.querySelectorAll('video').length, 'xgplayer:', content.querySelectorAll('.xgplayer, [class*="xgplayer"]').length, 'iframes:', content.querySelectorAll('iframe').length);
+    console.log('[NotionSnap] extractGenericContent: scanning for video embeds in content area');
+    videoEmbeds = collectVideoEmbeds(content);
+    console.log('[NotionSnap] extractGenericContent: found', videoEmbeds.length, 'video embeds');
   }
 
   var clone = content.cloneNode(true);
@@ -1933,6 +2514,22 @@ function extractGenericContent(doc) {
 
   // 图片预处理：lazy load → src，相对路径 → 绝对路径
   processGenericImages(clone);
+
+  // XHS: 将 <video> / xgplayer 替换为 [视频] 占位符（CDN 链接不可靠，内嵌位置保留标记）
+  if (category === 'xhs') {
+    var xhsVideoSelectors = ['video', '.xgplayer', '[class*="xgplayer"]', '.player-container'];
+    for (var xvs = 0; xvs < xhsVideoSelectors.length; xvs++) {
+      var xvEls = clone.querySelectorAll(xhsVideoSelectors[xvs]);
+      for (var xve = 0; xve < xvEls.length; xve++) {
+        var xvPH = doc.createElement('p');
+        var xvSpan = doc.createElement('span');
+        xvSpan.textContent = '[视频]';
+        xvSpan.setAttribute('style', 'color: #0066ff; font-weight: bold');
+        xvPH.appendChild(xvSpan);
+        try { xvEls[xve].parentNode.replaceChild(xvPH, xvEls[xve]); } catch(e) {}
+      }
+    }
+  }
 
   // 综合元数据：JSON-LD → OG meta 标签 → HTML meta
   var ldMeta = extractJsonLdMeta(doc);
@@ -1965,6 +2562,7 @@ function extractGenericContent(doc) {
     wordCount: wordCount,
     contentHTML: clone.innerHTML,
     url: window.location.href,
+    videoEmbeds: videoEmbeds.length > 0 ? videoEmbeds : undefined,
   };
 }
 

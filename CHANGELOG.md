@@ -1,5 +1,16 @@
 # 变更日志
 
+## v0.6.1 (2026-05-27)
+
+- 新增：视频平台页面专用解析器 — YouTube / Bilibili / TikTok / Douyin 页面识别 + 元数据提取 + embed block
+- 新增：文章内嵌视频提取 — 扫描 iframe/a 标签检测视频平台嵌入，转为 embed block，支持 YouTube/Bilibili/TikTok/Douyin/微信视频号
+- 新增：`collectVideoEmbeds()` 通用视频嵌入扫描 + `parseVideoPlatformPage()` 视频平台页面解析
+- 新增：`embedBlock()` / `bookmarkBlock()` block 工厂函数
+- 修复：Twitter 视频推文 — blob: URL 无法提取，改为 `[视频推文]` 行内文字标记（蓝色加粗）
+- 修复：微信公众号视频 — CDN 链接 403 + 占位符位置错乱，改为 `[视频]` 行内标记（蓝色加粗）
+- 修复：小红书视频 — CDN 链接返回 JS 挑战页，改为 `[视频]` 行内标记（蓝色加粗）
+- 优化：视频占位符统一使用蓝色加粗样式，Notion 页面中滑动时一眼识别视频位置
+
 ## v0.6.0 (2026-05-27)
 
 - 新增：Twitter/X 独立解析 — 单条推文 + 线程，提取文本/作者/时间/图片
