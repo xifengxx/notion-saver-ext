@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NotionSnap",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "一键保存网页内容到 Notion",
   "permissions": [
     "activeTab",

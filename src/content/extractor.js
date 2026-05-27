@@ -243,14 +243,45 @@ function richTextFromNode(node) {
     return childTexts;
   }
 
+  // 递归处理，保留嵌套链接并附加格式标注
   if (tag === 'strong' || tag === 'b') {
-    return [{ type: 'text', text: { content: decodeHtml(node.textContent) }, annotations: { bold: true } }];
+    var strongTexts = [];
+    var sc = node.childNodes;
+    for (var si = 0; si < sc.length; si++) {
+      var parts = richTextFromNode(sc[si]);
+      for (var sj = 0; sj < parts.length; sj++) {
+        parts[sj].annotations = parts[sj].annotations || {};
+        parts[sj].annotations.bold = true;
+        strongTexts.push(parts[sj]);
+      }
+    }
+    return strongTexts;
   }
   if (tag === 'em' || tag === 'i') {
-    return [{ type: 'text', text: { content: decodeHtml(node.textContent) }, annotations: { italic: true } }];
+    var emTexts = [];
+    var ec = node.childNodes;
+    for (var ei = 0; ei < ec.length; ei++) {
+      var parts = richTextFromNode(ec[ei]);
+      for (var ej = 0; ej < parts.length; ej++) {
+        parts[ej].annotations = parts[ej].annotations || {};
+        parts[ej].annotations.italic = true;
+        emTexts.push(parts[ej]);
+      }
+    }
+    return emTexts;
   }
   if (tag === 'del' || tag === 's' || tag === 'strike') {
-    return [{ type: 'text', text: { content: decodeHtml(node.textContent) }, annotations: { strikethrough: true } }];
+    var delTexts = [];
+    var dc = node.childNodes;
+    for (var di = 0; di < dc.length; di++) {
+      var parts = richTextFromNode(dc[di]);
+      for (var dj = 0; dj < parts.length; dj++) {
+        parts[dj].annotations = parts[dj].annotations || {};
+        parts[dj].annotations.strikethrough = true;
+        delTexts.push(parts[dj]);
+      }
+    }
+    return delTexts;
   }
   if (tag === 'code') {
     return [{ type: 'text', text: { content: node.textContent }, annotations: { code: true } }];
@@ -308,7 +339,7 @@ function domToBlocks(element, blocks) {
 function processElement(el, tag, blocks) {
   // 标题
   if (/^h[1-6]$/.test(tag)) {
-    var level = parseInt(tag[1]);
+    var level = Math.min(parseInt(tag[1]), 3); // Notion only supports h1-h3
     var headingImgs = el.querySelectorAll('img');
     for (var hi = 0; hi < headingImgs.length; hi++) {
       var hiSrc = headingImgs[hi].getAttribute('src') || headingImgs[hi].getAttribute('data-src') || headingImgs[hi].getAttribute('data-original') || '';
@@ -357,6 +388,20 @@ function processElement(el, tag, blocks) {
   }
   // 代码块
   else if (tag === 'pre') {
+    // 检测是否有 <code> 子元素
+    var hasCodeChild = el.querySelector('code') !== null;
+    // GitHub 等代码高亮：<pre> 直接包含 <span> + 文本节点，没有 <code> 包裹
+    // 此时直接用 textContent 获取完整代码文本
+    if (!hasCodeChild) {
+      var rawText = el.textContent || '';
+      if (rawText.trim().length > 0) {
+        var lang2 = '';
+        var langClass = el.className || '';
+        var langMatch2 = langClass.match(/language-(\S+)/);
+        if (langMatch2) lang2 = normalizeCodeLanguage(langMatch2[1]);
+        blocks.push(codeBlock(rawText.trim(), lang2));
+      }
+    } else {
     // WeChat 代码块结构：每个 <code> 标签包含一行代码，多个 <code> 在一个 <pre> 内
     // 策略：不直接用 textContent（会丢失换行），而是遍历子元素重建带换行的文本
     var lines = [];
@@ -410,6 +455,7 @@ function processElement(el, tag, blocks) {
     if (codeText && codeText.trim().length > 0) {
       blocks.push(codeBlock(codeText.trim(), lang));
     }
+    }
   }
   // 纯代码块（WeChat 有时直接用 code 标签，不在 pre 里）
   else if (tag === 'code') {
@@ -460,8 +506,8 @@ function processElement(el, tag, blocks) {
     var tableBlock = extractTableAsNotionTable(el);
     if (tableBlock) blocks.push(tableBlock);
   }
-  // 容器：递归深入处理子元素
-  else if (['div', 'section', 'article', 'main', 'figure', 'figcaption', 'header', 'footer', 'aside', 'nav', 'a'].indexOf(tag) !== -1) {
+  // 容器：递归深入处理子元素（含自定义元素/Web Components，标签名含 -）
+  else if (['div', 'section', 'article', 'main', 'figure', 'figcaption', 'picture', 'header', 'footer', 'aside', 'nav', 'a'].indexOf(tag) !== -1 || tag.indexOf('-') !== -1) {
     domToBlocks(el, blocks);
   }
   // 纯文本容器（span、label 等内联元素包裹的文字）
@@ -470,7 +516,7 @@ function processElement(el, tag, blocks) {
     var children2 = el.children;
     for (var ci = 0; ci < children2.length; ci++) {
       var ct = children2[ci].tagName.toLowerCase();
-      if (/^h[1-6]$/.test(ct) || ct === 'p' || ct === 'blockquote' || ct === 'ul' || ct === 'ol' || ct === 'pre' || ct === 'code' || ct === 'div' || ct === 'section' || ct === 'article' || ct === 'table' || ct === 'img' || ct === 'figure') {
+      if (/^h[1-6]$/.test(ct) || ct === 'p' || ct === 'blockquote' || ct === 'ul' || ct === 'ol' || ct === 'pre' || ct === 'code' || ct === 'div' || ct === 'section' || ct === 'article' || ct === 'table' || ct === 'img' || ct === 'figure' || ct === 'picture' || ct.indexOf('-') !== -1) {
         hasBlockChild = true;
         break;
       }
@@ -570,16 +616,21 @@ function extractTableAsNotionTable(table) {
   var trs = table.querySelectorAll('tr');
   if (trs.length === 0) return null;
 
+  // 收集每一行的 rich text 数组（保留链接、加粗等格式）
   var rows = [];
+  var hasHeader = false;
   for (var i = 0; i < trs.length; i++) {
-    var cells = [];
     var tds = trs[i].querySelectorAll('td, th');
+    if (tds.length === 0) continue;
+    // 首行有 th 才认为有列头
+    if (i === 0 && trs[i].querySelectorAll('th').length > 0) hasHeader = true;
+    var cells = [];
     for (var j = 0; j < tds.length; j++) {
-      var text = tds[j].textContent.trim().replace(/\n/g, ' ');
-      cells.push({
-        type: 'text',
-        text: { content: text }
-      });
+      var rt = richTextFromNode(tds[j]);
+      if (rt.length === 0) {
+        rt = [{ type: 'text', text: { content: '' } }];
+      }
+      cells.push(rt);
     }
     if (cells.length) rows.push(cells);
   }
@@ -591,12 +642,11 @@ function extractTableAsNotionTable(table) {
   }
   if (colCount === 0) return null;
 
-  // Notion table block: cells 是 2D 数组，每格一个 rich_text 数组
   var tableBlock = {
     type: 'table',
     table: {
       table_width: colCount,
-      has_column_header: true,
+      has_column_header: hasHeader,
       has_row_header: false
     }
   };
@@ -605,13 +655,7 @@ function extractTableAsNotionTable(table) {
   for (var i = 0; i < rows.length; i++) {
     var cells = [];
     for (var j = 0; j < colCount; j++) {
-      var cellText = (rows[i] && rows[i][j])
-        ? rows[i][j].text.content
-        : '';
-      cells.push([{
-        type: 'text',
-        text: { content: cellText }
-      }]);
+      cells.push((rows[i] && rows[i][j]) ? rows[i][j] : [{ type: 'text', text: { content: '' } }]);
     }
     tableRows.push({
       type: 'table_row',
@@ -672,12 +716,19 @@ function finalizeExtractedData(data) {
       }
     }
 
-    // 图片去重：按 URL 去重，保留第一次出现
+    // 防御性过滤 + 图片去重
     var seenUrls = {};
     var dedupedBlocks = [];
     var dedupedCount = 0;
+    var invalidCount = 0;
     for (var bi = 0; bi < blocks.length; bi++) {
       var b = blocks[bi];
+      // 跳过没有有效 type 的 block（Substack 自定义域名等异常 HTML 可能产生）
+      if (!b || !b.type || typeof b.type !== 'string') {
+        invalidCount++;
+        console.log('[NotionSnap] Drop invalid block at index', bi, JSON.stringify(b).substring(0, 100));
+        continue;
+      }
       if (b.type === 'image' && b.image && b.image.external && b.image.external.url) {
         var imgUrl = b.image.external.url;
         if (seenUrls[imgUrl]) {
@@ -688,10 +739,38 @@ function finalizeExtractedData(data) {
       }
       dedupedBlocks.push(b);
     }
-    if (dedupedCount > 0) {
-      console.log('[NotionSnap] Removed', dedupedCount, 'duplicate image(s)');
-      blocks = dedupedBlocks;
+    if (invalidCount > 0) console.log('[NotionSnap] Dropped', invalidCount, 'invalid block(s)');
+    if (dedupedCount > 0) console.log('[NotionSnap] Removed', dedupedCount, 'duplicate image(s)');
+    blocks = dedupedBlocks;
+
+    // 代码块拆分：Notion API 限制 code.rich_text[0].text.content.length ≤ 2000
+    var splitBlocks = [];
+    for (var ci = 0; ci < blocks.length; ci++) {
+      var cb = blocks[ci];
+      if (cb.type === 'code' && cb.code && cb.code.rich_text && cb.code.rich_text[0]) {
+        var codeText = cb.code.rich_text[0].text.content || '';
+        if (codeText.length > 2000) {
+          var lang = cb.code.language || 'plain text';
+          var pos = 0;
+          while (pos < codeText.length) {
+            // 在 2000 字符处尽量按换行切开
+            var end = Math.min(pos + 2000, codeText.length);
+            if (end < codeText.length) {
+              var lastNewline = codeText.lastIndexOf('\n', end);
+              if (lastNewline > pos && lastNewline > end - 200) {
+                end = lastNewline;
+              }
+            }
+            var chunk = codeText.substring(pos, end).trim();
+            if (chunk) splitBlocks.push(codeBlock(chunk, lang));
+            pos = end;
+          }
+          continue;
+        }
+      }
+      splitBlocks.push(cb);
     }
+    blocks = splitBlocks;
 
     data.blocks = blocks;
     console.log('[NotionSnap] Extracted', blocks.length, 'blocks');
@@ -837,6 +916,16 @@ function extractContent() {
     return parseZhihuQuestion(document);
   }
 
+  // Twitter/X 推文页面
+  if (isTwitterPage()) {
+    return parseTwitterPage(document);
+  }
+
+  // GitHub 页面（README / Issue）
+  if (isGitHubPage()) {
+    return parseGitHubPage(document);
+  }
+
   // 通用网页
   return extractGenericContent(document);
 }
@@ -848,6 +937,15 @@ function isWechatArticle() {
 
 function isZhihuQuestion() {
   return /zhihu\.com\/question\//.test(window.location.href);
+}
+
+function isTwitterPage() {
+  var h = window.location.hostname || '';
+  return /^(x\.com|twitter\.com)$/.test(h);
+}
+
+function isGitHubPage() {
+  return (window.location.hostname || '') === 'github.com';
 }
 
 // 知乎问答页：仅展开问题描述和回答中的折叠内容，不触发页面其他按钮
@@ -1058,6 +1156,355 @@ function processZhihuImages(container, doc) {
 }
 
 // ============================================================
+// Twitter/X 专用解析
+// ============================================================
+function parseTwitterPage(doc) {
+  var primaryColumn = doc.querySelector('div[data-testid="primaryColumn"]');
+  var searchArea = primaryColumn || doc;
+  var tweets = searchArea.querySelectorAll('article[data-testid="tweet"]');
+  var container = doc.createElement('div');
+
+  var title = '';
+  var author = '';
+  var publishTime = '';
+  var tweetCount = 0;
+
+  for (var t = 0; t < tweets.length; t++) {
+    var tweet = tweets[t];
+
+    // 提取推文文本
+    var tweetTextEl = tweet.querySelector('[data-testid="tweetText"]');
+    if (!tweetTextEl) continue;
+
+    var textClone = tweetTextEl.cloneNode(true);
+
+    // 移除第三方翻译注入的 overlay 元素
+    var transOverlays = textClone.querySelectorAll('[data-immersive-translate], [data-translate], .js_translate');
+    for (var ti = 0; ti < transOverlays.length; ti++) transOverlays[ti].remove();
+
+    var textContent = (textClone.textContent || '').trim();
+    if (textContent.length < 2) continue;
+
+    tweetCount++;
+
+    // 第一条推文提取元数据
+    if (t === 0) {
+      var userNameEl = tweet.querySelector('[data-testid="User-Name"]');
+      if (userNameEl) {
+        var nameSpans = userNameEl.querySelectorAll('span');
+        for (var ns = 0; ns < nameSpans.length; ns++) {
+          var spanText = (nameSpans[ns].textContent || '').trim();
+          if (spanText && spanText.indexOf('@') !== 0) {
+            author = spanText;
+            break;
+          }
+        }
+      }
+
+      var timeEl = tweet.querySelector('time[datetime]');
+      if (timeEl) publishTime = timeEl.getAttribute('datetime') || '';
+
+      title = textContent.substring(0, 80);
+      if (textContent.length > 80) title += '...';
+    }
+
+    // 推文文本 → 段落
+    var p = doc.createElement('p');
+    p.innerHTML = textClone.innerHTML;
+    container.appendChild(p);
+
+    // 推文图片
+    var tweetPhotos = tweet.querySelectorAll('[data-testid="tweetPhoto"] img');
+    for (var pi = 0; pi < tweetPhotos.length; pi++) {
+      var src = tweetPhotos[pi].getAttribute('src') || '';
+      if (src && !/^data:image\/svg/i.test(src)) {
+        var img = doc.createElement('img');
+        img.setAttribute('src', src);
+        container.appendChild(img);
+      }
+    }
+
+    // 推文视频
+    var videoEls = tweet.querySelectorAll('[data-testid="videoComponent"] video, [data-testid="videoPlayer"] video');
+    for (var vi = 0; vi < videoEls.length; vi++) {
+      var vSrc = videoEls[vi].getAttribute('src') || '';
+      if (!vSrc) {
+        try { vSrc = videoEls[vi].currentSrc || ''; } catch(e) {}
+      }
+      if (vSrc) {
+        var vid = doc.createElement('video');
+        vid.setAttribute('src', vSrc);
+        container.appendChild(vid);
+      }
+    }
+
+    // 推文间 divider
+    if (t < tweets.length - 1) {
+      var hr = doc.createElement('hr');
+      container.appendChild(hr);
+    }
+  }
+
+  // 没有找到推文 → 回退到 primaryColumn 全文提取
+  if (tweetCount === 0) {
+    var fbSource = primaryColumn || doc.body;
+    var fbClone = fbSource.cloneNode(true);
+    var noiseSels = [
+      '[data-testid="sidebarColumn"]', '[data-testid="BottomBar"]',
+      '[data-testid="GrokDrawer"]', '[data-testid^="AppTabBar_"]',
+      '[data-testid="SideNav_NewTweet_Button"]', '[data-testid="SideNav_AccountSwitcher_Button"]',
+      '[aria-label="Trending"]', '[aria-label="Relevant people"]',
+      '[data-testid="premium-signup-tab"]', '[data-testid="UserCell"]',
+    ];
+    for (var nsi = 0; nsi < noiseSels.length; nsi++) {
+      var noiseEls = fbClone.querySelectorAll(noiseSels[nsi]);
+      for (var nj = 0; nj < noiseEls.length; nj++) noiseEls[nj].remove();
+    }
+    container = fbClone;
+  }
+
+  processGenericImages(container);
+
+  var blocks = [];
+  domToBlocks(container, blocks);
+
+  var meta = extractGenericMeta(doc);
+  var bodyText = container.textContent || '';
+
+  return {
+    type: 'twitter_thread',
+    title: title || meta.title || doc.title || '',
+    author: author || meta.author || '',
+    publishTime: publishTime || meta.publishTime || '',
+    coverImage: meta.coverImage,
+    description: meta.description,
+    siteName: 'Twitter/X',
+    language: meta.language,
+    wordCount: bodyText.length,
+    blocks: blocks,
+    contentHTML: container.innerHTML,
+    url: window.location.href,
+  };
+}
+
+// ============================================================
+// GitHub 专用解析（README / Issue）
+// ============================================================
+function parseGitHubPage(doc) {
+  var url = window.location.href;
+  if (/\/issues\/\d+/.test(url)) {
+    return parseGitHubIssue(doc);
+  }
+  return parseGitHubReadme(doc);
+}
+
+function parseGitHubReadme(doc) {
+  var container = doc.createElement('div');
+
+  // 标题：从 <title> 解析 owner/repo 格式
+  var title = '';
+  var titleText = doc.title || '';
+  // GitHub title 格式: "owner/repo: description · GitHub" 或 "GitHub - owner/repo: desc"
+  var repoMatch = titleText.match(/([a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+)/);
+  if (repoMatch) title = repoMatch[1];
+
+  // 正文：README markdown-body
+  var readmeEl = doc.querySelector('article.markdown-body.entry-content')
+    || doc.querySelector('.markdown-body')
+    || doc.querySelector('[itemprop="text"]');
+
+  var bodyClone = null;
+  if (readmeEl) {
+    bodyClone = readmeEl.cloneNode(true);
+  } else {
+    // 回退：整个 repo-content 容器，手动去噪
+    var repoContent = doc.querySelector('#repo-content-pjax-container')
+      || doc.querySelector('.repository-content')
+      || doc.querySelector('[data-testid="readme-content"]');
+    if (repoContent) {
+      bodyClone = repoContent.cloneNode(true);
+      // 移除 sidebar (About / Releases / Packages)
+      var borderGrids = bodyClone.querySelectorAll('.BorderGrid, [class*="BorderGrid"]');
+      for (var bi = 0; bi < borderGrids.length; bi++) borderGrids[bi].remove();
+      // 移除文件列表
+      var dirContents = bodyClone.querySelectorAll('[class*="DirectoryContent-module"], [class*="OverviewRepoFiles-module"]');
+      for (var di = 0; di < dirContents.length; di++) dirContents[di].remove();
+      // 移除 tab 导航
+      var navTabs = bodyClone.querySelectorAll('.UnderlineNav, [class*="UnderlineNav"], .pagehead-actions');
+      for (var ni = 0; ni < navTabs.length; ni++) navTabs[ni].remove();
+      // 移除 footer
+      var footers = bodyClone.querySelectorAll('.footer, [class*="Footer-module"]');
+      for (var fi = 0; fi < footers.length; fi++) footers[fi].remove();
+    }
+  }
+
+  if (bodyClone) {
+    container.appendChild(bodyClone);
+  }
+
+  processGenericImages(container);
+
+  // 移除 README 中的装饰性小图：shields.io badges 和 GitHub 头像
+  var allImgs = container.querySelectorAll('img');
+  for (var ai = 0; ai < allImgs.length; ai++) {
+    var imgSrc = allImgs[ai].getAttribute('src') || '';
+    var imgW = parseInt(allImgs[ai].getAttribute('width') || '0', 10);
+    var imgH = parseInt(allImgs[ai].getAttribute('height') || '0', 10);
+    var shouldRemove = false;
+    if (/\/\/img\.shields\.io\//.test(imgSrc)) shouldRemove = true;
+    else if (/\/\/avatars\.githubusercontent\.com\//.test(imgSrc)) shouldRemove = true;
+    else if (/\/\/github\.com\/[^/]+\.png(\?|$)/.test(imgSrc)) shouldRemove = true;
+    else if (imgW > 0 && imgH > 0 && imgW <= 30 && imgH <= 30) shouldRemove = true;
+    if (shouldRemove) {
+      var parent = allImgs[ai].parentNode;
+      if (parent) parent.removeChild(allImgs[ai]);
+    }
+  }
+
+  var blocks = [];
+  domToBlocks(container, blocks);
+
+  var meta = extractGenericMeta(doc);
+  var bodyText = container.textContent || '';
+
+  return {
+    type: 'github_readme',
+    title: title || meta.title || doc.title || '',
+    author: meta.author,
+    publishTime: meta.publishTime,
+    coverImage: meta.coverImage,
+    description: meta.description,
+    siteName: 'GitHub',
+    language: meta.language,
+    wordCount: bodyText.length,
+    blocks: blocks,
+    contentHTML: container.innerHTML,
+    url: window.location.href,
+  };
+}
+
+function parseGitHubIssue(doc) {
+  var container = doc.createElement('div');
+
+  // 标题
+  var titleEl = doc.querySelector('bdi[data-testid="issue-title"]')
+    || doc.querySelector('.js-issue-title');
+  var title = titleEl ? titleEl.textContent.trim() : (doc.title || '');
+
+  // 状态
+  var stateEl = doc.querySelector('[data-testid="header-state"]');
+  var stateText = '';
+  if (stateEl) {
+    var stateStatus = stateEl.getAttribute('data-status') || '';
+    if (stateStatus === 'issueOpened') stateText = 'Open';
+    else if (stateStatus === 'issueClosed') stateText = 'Closed';
+    else stateText = stateStatus;
+  }
+
+  var h1 = doc.createElement('h1');
+  h1.textContent = title + (stateText ? ' [' + stateText + ']' : '');
+  container.appendChild(h1);
+
+  // 正文
+  var issueBody = doc.querySelector('[data-testid="issue-body"] .markdown-body')
+    || doc.querySelector('[data-testid="issue-body"]')
+    || doc.querySelector('.comment-body');
+  var issueAuthor = '';
+  var issueTime = '';
+
+  if (issueBody) {
+    // Issue 作者
+    var issueAuthorLink = doc.querySelector('[data-testid="issue-body-header-author"]')
+      || doc.querySelector('a[data-hovercard-type="user"]');
+    if (issueAuthorLink) issueAuthor = (issueAuthorLink.textContent || '').trim();
+
+    // Issue 时间
+    var issueRelativeTime = doc.querySelector('[data-testid="issue-body-header-link"] relative-time')
+      || doc.querySelector('relative-time[datetime]');
+    if (issueRelativeTime) issueTime = issueRelativeTime.getAttribute('datetime') || '';
+
+    // 作者+时间标注
+    var issueMetaText = '';
+    if (issueAuthor) issueMetaText += '@' + issueAuthor;
+    if (issueTime) issueMetaText += ' (' + issueTime + ')';
+    if (issueMetaText) {
+      var metaP = doc.createElement('p');
+      var metaStrong = doc.createElement('strong');
+      metaStrong.textContent = issueMetaText;
+      metaP.appendChild(metaStrong);
+      container.appendChild(metaP);
+    }
+
+    container.appendChild(issueBody.cloneNode(true));
+  }
+
+  // 评论线程
+  var timeline = doc.querySelector('#issue-timeline')
+    || doc.querySelector('[data-testid="issue-timeline-container"]');
+  if (timeline) {
+    var timelineItems = timeline.querySelectorAll('[class*="Timeline_Item"], .js-timeline-item');
+    for (var i = 0; i < timelineItems.length; i++) {
+      var item = timelineItems[i];
+      var commentBody = item.querySelector('.markdown-body')
+        || item.querySelector('.comment-body');
+      if (!commentBody) continue; // 跳过系统事件（labels / cross-refs）
+
+      // 评论作者
+      var commentAuthor = '';
+      var authorLink = item.querySelector('a[data-hovercard-type="user"]')
+        || item.querySelector('.author');
+      if (authorLink) commentAuthor = (authorLink.textContent || '').trim();
+
+      // 评论时间
+      var commentTime = '';
+      var relTime = item.querySelector('relative-time[datetime]');
+      if (relTime) commentTime = relTime.getAttribute('datetime') || '';
+
+      // divider
+      var hr = doc.createElement('hr');
+      container.appendChild(hr);
+
+      // 评论头部
+      var cmtHeaderText = '';
+      if (commentAuthor) cmtHeaderText += '@' + commentAuthor;
+      if (commentTime) cmtHeaderText += ' (' + commentTime + ')';
+      if (cmtHeaderText) {
+        var cmtP = doc.createElement('p');
+        var cmtStrong = doc.createElement('strong');
+        cmtStrong.textContent = cmtHeaderText;
+        cmtP.appendChild(cmtStrong);
+        container.appendChild(cmtP);
+      }
+
+      container.appendChild(commentBody.cloneNode(true));
+    }
+  }
+
+  processGenericImages(container);
+
+  var blocks = [];
+  domToBlocks(container, blocks);
+
+  var meta = extractGenericMeta(doc);
+  var bodyText = container.textContent || '';
+
+  return {
+    type: 'github_issue',
+    title: title,
+    author: issueAuthor || meta.author,
+    publishTime: issueTime || meta.publishTime,
+    coverImage: meta.coverImage,
+    description: meta.description,
+    siteName: 'GitHub',
+    language: meta.language,
+    wordCount: bodyText.length,
+    blocks: blocks,
+    contentHTML: container.innerHTML,
+    url: window.location.href,
+  };
+}
+
+// ============================================================
 // 公众号专用解析
 // ============================================================
 function parseWechatArticle(doc) {
@@ -1185,6 +1632,8 @@ function classifyPage(hostname) {
   if (/jianshu\.com$/.test(h)) return 'blog';
   if (/medium\.com$/.test(h)) return 'blog';
   if (/substack\.com$/.test(h)) return 'blog';
+  // Substack 自定义域名：检测 DOM 特征（pencraft CSS 框架 + reader2-post-content）
+  if (document.querySelector('.reader2-post-content .body.markup')) return 'blog';
   if (/hashnode\.dev$/.test(h)) return 'blog';
   if (/dev\.to$/.test(h)) return 'blog';
   if (/wordpress\.com$/.test(h)) return 'blog';
@@ -1224,11 +1673,14 @@ function classifyPage(hostname) {
 function getCategorySelectors(category) {
   var map = {
     blog: [
+      '.body.markup',                      // Substack（优先匹配，避免被 article 误选）
       '.Post-RichText', '.RichContent-inner', '.Post-content',
       '.article', '.show-content', '._2rhmJa',
       '.post-body', '.body', '.markup',
       'article', '.postArticle-content', 'section[data-testid="body"]',
       '.gh-content', '.post-content',
+      '.markdown-body',                    // GitHub README/Issue
+      'div[data-testid="tweetText"]',      // Twitter 文本
     ],
     news: [
       '.story-body', '.story-body__inner',
@@ -1283,6 +1735,17 @@ function getCategoryNoiseSelectors(category) {
     '.sidebar', '.related-sidebar',
   ];
   var extra = {
+    blog: [
+      '.speechify-ignore',                        // Medium audio overlay
+      '[data-testid="clapButton"]',               // Medium
+      '[data-testid="commentButton"]',            // Medium
+      '[data-testid="bookmarkButton"]',           // Medium
+      '[data-component-name="SubscribeWidget"]',  // Substack CTA
+      '[data-component-name="EmbeddedPublicationToDOMWithSubscribe"]', // Substack
+      '.subscribe-widget',                       // Substack subscribe CTA
+      '.subscription-widget-wrap',               // Substack
+      '.paywall', '.metered-content',            // Substack paywall
+    ],
     news: ['.inline-newsletter', '.registration-prompt', '.article-recirc', '.read-next'],
     tech: ['.inline-newsletter', '.job-board', '.end-article-cta'],
     sspai: [
@@ -1343,7 +1806,7 @@ function extractJsonLdMeta(doc) {
 
 function applyJsonLdItem(item, meta) {
   var type = item['@type'];
-  if (type === 'Article' || type === 'BlogPosting' || type === 'NewsArticle' || type === 'Report') {
+  if (type === 'Article' || type === 'BlogPosting' || type === 'NewsArticle' || type === 'Report' || type === 'SocialMediaPosting') {
     if (!meta.author && item.author) {
       meta.author = typeof item.author === 'string' ? item.author : (item.author.name || '');
     }

@@ -39,6 +39,7 @@ chrome.runtime.onInstalled.addListener(function() {
 // OAuth 登录轮询（在 background 运行，不受 popup 关闭影响）
 // ============================================================
 var oauthPollTimers = {};
+var _pendingSaves = {}; // 去重：正在保存的 URL → timestamp，防止重复创建页面
 
 function generateSessionId() {
   var d = Date.now();
@@ -279,11 +280,20 @@ function refreshToken(refreshTokenValue) {
 // Notion API 核心保存流程
 // ============================================================
 function saveToNotion(data, parentPageId, workspaceBotId, targetType, sourceTabId) {
+  // 去重：同一 URL 5 秒内不重复保存
+  var saveUrl = (data && data.url) || '';
+  if (saveUrl && _pendingSaves[saveUrl] && Date.now() - _pendingSaves[saveUrl] < 5000) {
+    console.warn('[NotionSnap] Duplicate save blocked for:', saveUrl);
+    return Promise.resolve({ success: false, error: '该页面正在保存中，请稍后再试' });
+  }
+  if (saveUrl) _pendingSaves[saveUrl] = Date.now();
+
   // 标记保存进行中，用于检测 SW 终止导致的中断 + 进度跟踪
   chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'in_progress', startedAt: Date.now(), stage: 'creating_page', blocksTotal: 0, blocksDone: 0, retryCurrent: 0 } });
 
   return getValidToken().then(function(token) {
     if (!token) {
+      if (saveUrl) delete _pendingSaves[saveUrl];
       return { success: false, error: '未登录或认证已过期，请重新登录' };
     }
 
@@ -298,11 +308,83 @@ function saveToNotion(data, parentPageId, workspaceBotId, targetType, sourceTabI
     }).then(function(page) {
       var pageId = page.id;
 
-      var blocks = (data.blocks || []).map(function(b) {
+      // 安全网：过滤掉没有有效 type 的 block（Substack 自定义域名等边缘情况可能产生）
+      var rawBlocks = data.blocks || [];
+      var validBlocks = [];
+      var droppedCount = 0;
+      for (var ri = 0; ri < rawBlocks.length; ri++) {
+        var rb = rawBlocks[ri];
+        if (!rb || !rb.type || typeof rb.type !== 'string') {
+          droppedCount++;
+          console.warn('[NotionSnap] SW dropping invalid block at index', ri, JSON.stringify(rb).substring(0, 100));
+          continue;
+        }
+        validBlocks.push(rb);
+      }
+      if (droppedCount > 0) console.warn('[NotionSnap] SW dropped', droppedCount, 'invalid block(s) from content script');
+
+      var blocks = validBlocks.map(function(b) {
         var result = { object: 'block', type: b.type };
         result[b.type] = b[b.type];
         return result;
       });
+
+      // 规范化：heading_4/5/6 降级为 heading_3（Notion API 只支持 h1-h3）
+      for (var ni = 0; ni < blocks.length; ni++) {
+        var nb = blocks[ni];
+        var nt = nb.type;
+        if (nt === 'heading_4' || nt === 'heading_5' || nt === 'heading_6') {
+          nb.type = 'heading_3';
+          nb.heading_3 = nb[nt];
+          delete nb[nt];
+        }
+      }
+
+      // 第三层防御：验证每个 block 的必备字段存在（防止 JSON.stringify 省略 undefined 导致 API 拒绝）
+      var validatedBlocks = [];
+      var validationDropped = 0;
+      for (var vi = 0; vi < blocks.length; vi++) {
+        var vb = blocks[vi];
+        var vt = vb.type;
+        // 通用检查：block type 对应的内容字段必须存在
+        if (!vt || !vb[vt]) {
+          validationDropped++;
+          console.warn('[NotionSnap] Validation dropped block at index', vi, 'type:', JSON.stringify(vt), '— missing content field, keys:', JSON.stringify(Object.keys(vb)));
+          continue;
+        }
+        // 需要 rich_text 的 block 类型
+        var needsRichText = ['paragraph','heading_1','heading_2','heading_3','heading_4','heading_5','heading_6','quote','bulleted_list_item','numbered_list_item','code','callout','to_do','toggle'];
+        if (needsRichText.indexOf(vt) !== -1) {
+          if (!vb[vt].rich_text || !Array.isArray(vb[vt].rich_text)) {
+            validationDropped++;
+            console.warn('[NotionSnap] Validation dropped block at index', vi, 'type:', vt, '— missing rich_text');
+            continue;
+          }
+        } else if (vt === 'image' || vt === 'video') {
+          if (!vb[vt].type || !vb[vt].external || !vb[vt].external.url) {
+            validationDropped++;
+            console.warn('[NotionSnap] Validation dropped block at index', vi, 'type:', vt, '— missing external url');
+            continue;
+          }
+        } else if (vt === 'divider') {
+          // divider 只需要 vtb.divider 存在即可（上面通用检查已通过）
+        } else if (vt === 'table') {
+          if (typeof vb.table.table_width !== 'number') {
+            validationDropped++;
+            console.warn('[NotionSnap] Validation dropped block at index', vi, 'type: table — invalid structure');
+            continue;
+          }
+        } else if (vt === 'table_row') {
+          if (!vb.table_row.cells) {
+            validationDropped++;
+            console.warn('[NotionSnap] Validation dropped block at index', vi, 'type: table_row — missing cells');
+            continue;
+          }
+        }
+        validatedBlocks.push(vb);
+      }
+      if (validationDropped > 0) console.warn('[NotionSnap] Validation dropped', validationDropped, 'block(s) with missing required fields');
+      blocks = validatedBlocks;
 
       if (blocks.length === 0) {
         chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'completed', at: Date.now() } });
@@ -340,6 +422,7 @@ function saveToNotion(data, parentPageId, workspaceBotId, targetType, sourceTabI
           startBackgroundImageReplacement(token, pageId, workspaceBotId, blocks, data.url, sourceTabId);
         }
 
+        if (saveUrl) delete _pendingSaves[saveUrl];
         return {
           success: true,
           pageUrl: page.url,
@@ -349,6 +432,7 @@ function saveToNotion(data, parentPageId, workspaceBotId, targetType, sourceTabI
       });
     });
   }).catch(function(err) {
+    if (saveUrl) delete _pendingSaves[saveUrl];
     console.error('[NotionSnap] Save failed:', err);
     chrome.storage.local.set({ [STORE.SAVE_STATE]: { status: 'failed', error: err.message || '保存失败', at: Date.now() } });
     chrome.action.setBadgeText({ text: '' });

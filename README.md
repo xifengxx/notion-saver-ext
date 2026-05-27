@@ -2,9 +2,20 @@
 
 Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文章的稳定完整抓取，替代 Notion Web Clipper（不稳定）和 Copy to Notion（付费）。
 
-当前版本：**v0.5.3**
+当前版本：**v0.6.0**
 
 ## 变更日志
+
+### v0.6.0
+- 新增：Twitter/X 独立解析 — 单条推文 + 线程，提取文本/作者/时间/图片
+- 新增：GitHub 独立解析 — README 渲染（markdown → blocks）+ Issue 正文+评论线程
+- 新增：Medium/Substack 增强 — 精确 selector + 噪声清理（CTA/推荐/互动按钮）+ JSON-LD SocialMediaPosting
+- 新增：Substack 自定义域名适配（zengzhang.ai 等）
+- 新增：block 类型安全验证三层防御 — 内容脚本过滤 → SW 类型安全网 → SW 内容字段验证
+- 新增：保存去重 — URL 级别 5 秒去重，防止重复点击创建多条记录
+- 修复：h4/h5/h6 映射为 heading_3（Notion API 仅支持 h1-h3）
+- 修复：GitHub 表格渲染富文本保持、badge/avatar 噪声过滤、代码块 2000 字符截断
+- 修复：Substack 标准域名图片丢失（Image2ToDOM 误判为噪声）
 
 ### v0.5.3
 - 新增：两阶段保存 — Phase 1 秒级保存（文字 + external URL 图片），Phase 2 后台异步替换为 Notion 托管
