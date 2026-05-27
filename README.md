@@ -1,182 +1,205 @@
 # NotionSnap
 
-Chrome 扩展，一键保存任意网页到 Notion。核心场景是公众号文章的稳定完整抓取，替代 Notion Web Clipper（不稳定）和 Copy to Notion（付费）。
+**把任何网页，一秒变成整洁的 Notion 笔记。**
 
-当前版本：**v0.6.0**
+Chrome 扩展，一键保存任意网页到 Notion。7 个网站专用解析器 + 30+ 站点智能适配，专为中文内容生态深度优化。Notion Web Clipper 的最佳免费替代品。
 
-## 变更日志
+当前版本：**v0.6.0** | [变更日志](CHANGELOG.md) | [Chrome Web Store](#)（即将上架）
 
-### v0.6.0
-- 新增：Twitter/X 独立解析 — 单条推文 + 线程，提取文本/作者/时间/图片
-- 新增：GitHub 独立解析 — README 渲染（markdown → blocks）+ Issue 正文+评论线程
-- 新增：Medium/Substack 增强 — 精确 selector + 噪声清理（CTA/推荐/互动按钮）+ JSON-LD SocialMediaPosting
-- 新增：Substack 自定义域名适配（zengzhang.ai 等）
-- 新增：block 类型安全验证三层防御 — 内容脚本过滤 → SW 类型安全网 → SW 内容字段验证
-- 新增：保存去重 — URL 级别 5 秒去重，防止重复点击创建多条记录
-- 修复：h4/h5/h6 映射为 heading_3（Notion API 仅支持 h1-h3）
-- 修复：GitHub 表格渲染富文本保持、badge/avatar 噪声过滤、代码块 2000 字符截断
-- 修复：Substack 标准域名图片丢失（Image2ToDOM 误判为噪声）
+---
 
-### v0.5.3
-- 新增：两阶段保存 — Phase 1 秒级保存（文字 + external URL 图片），Phase 2 后台异步替换为 Notion 托管
-- 新增：external_url 导入模式（优先 Notion 服务器直取，单次 API 调用）+ 二进制上传回退
-- 新增：Phase 2 任务队列 — 多页面连续保存时串行处理，避免并发覆盖和任务丢失
-- 新增：SW 终止恢复 — 图片替换进度持久化，Service Worker 重启后自动续传
-- 新增：URL 三层匹配（精确 → 解码比较 → 按位置回退），解决 Notion 存储 URL 与原始 URL 不一致导致匹配失败
-- 修复：SW 恢复时 deleteBlock 遇到已归档 block 报错（blockDeleted 标记 + "archived" 容错）
-- 修复：fetchDatabaseSchema 保存到页面时误报 error（预期行为降级为 info）
+## 你遇到过这些问题吗？
 
-### v0.5.2
-- 新增：渐进式加载 — 4 路独立 fetch_pages_chunk 消息，逐条返回即刻渲染
-- 新增：滚动分页 — 非搜索模式下拉框滚动到底加载更多（上限 30 条）
-- 新增：搜索 300ms 防抖
-- 新增：永久保存目标列表 — 用户保存过的页面不受 Notion API 100 条限制，始终可搜索
-- 优化：搜索排名 — 本地 indexOf 优先 + workspace 页面排前，API 结果补充
-- 修复：下拉框关闭后重新打开，残留的搜索关键词不清除
+- 用 Notion Web Clipper 保存文章，结果只得到空白页？
+- 公众号链接复制进 Notion，过几天打开已被删除？
+- GitHub README 粘到 Notion 里格式全乱，代码块变成纯文本？
+- Twitter 看到好内容只能截屏，事后根本搜不到？
 
-### v0.5.1
-- 新增：自动字段匹配 — 保存到数据库时自动加载 schema，按属性名/类型匹配 9 个元数据字段（URL/作者/发布时间/摘要/网站名称/语言/关键词/封面图/字数），无需手动配置
-- 新增：首页元数据"更多"可展开面板 — 标题下方展示可编辑的元数据字段，保存时修改直接生效
-- 新增：页面列表缓存 — 打开弹窗秒出下拉数据，5 分钟后台静默刷新
-- 优化：下拉框重构为两类结构 — 最近保存（5 个）+ 所有页面（10 个默认/可展开到 20）
-- 优化：自动选中上次保存的页面/数据库为默认目标，即时显示不再等待 API
-- 优化：元数据提取增强 — 9 字段覆盖中英文网页，关键词中文 N-gram 自动提取
-- 移除：设置面板中的"自定义保存字段"手动配置区域（已被自动匹配替代）
+**NotionSnap 解决上述所有问题。** 不是「又一个 Clipper」，而是你真正需要的那一个。
 
-### v0.5.0
-- 新增：自定义保存字段 — 创建数据库 preset 时可勾选 URL/作者/发布时间/关键词映射到 Notion 数据库属性
-- 新增：内容关键词提取 — 保存时自动从正文提取 3~5 个中文关键词，写入 Notion multi_select 属性
-- 新增：字段映射编辑器 — 设置面板中可编辑已有 preset 的字段映射配置
-- 新增：数据库 schema 24h 缓存 — 避免每次打开都调 Notion API
-- 修复：parent type 跟踪 — 选择数据库时正确使用 `database_id` 创建页面
+---
 
-### v0.4.1
-- 修复：图片上传 Notion API Gateway HTTP 400（POST + FormData + Authorization + Notion-Version）
-- 修复：图片上传 URL 字段兼容（upload_url / url / signed_url）
-- 修复：右键/快捷键保存 fallback 到最近保存页面（之前永远走 Notion 搜索）
-- 优化：页面搜索下拉 — 搜索时即时显示本地缓存结果，API 返回后合并去重
-- 优化：初始加载覆盖更广（3 种排序去重：desc + asc + 默认，page_size 100）
-- 优化：搜索结果按层级排序（workspace > page_id/block_id > 其他 > database_id）
-- 优化：默认下拉简洁化（最近保存 + 5 数据库 + 5 一级页面）
-- 优化：搜索模式下数据库/页面带类型标签
+## 为什么选 NotionSnap？
 
-### v0.4.0
-- 新增：保存预设（pill 按钮一键切换目标页面，设置面板管理预设列表，最多 15 个，5 种彩色标签）
-- 新增：保存历史记录面板（时钟图标进入，按日期分组，支持复制链接/打开 Notion/重试失败项）
-- 新增：右键/快捷键保存也记录到历史
-- 新增：File Upload 图片上传（下载图片二进制 → 上传到 Notion S3，彻底解决防盗链图片不显示问题）
-- 新增：并行下载优化（全部图片同时下载，上传排队，大幅缩短等待时间）
-- 优化：预设 UI 打磨（设置面板横排 pill 布局、悬停效果、快捷键修改按钮悬停效果）
-- 优化：历史面板高度限制、保存失败状态提示自动清除
-- 更新：扩展图标从 symbol.png 替换为 appicon
+| | NotionSnap | Notion Web Clipper | Copy to Notion |
+|---|---|---|---|
+| 价格 | **免费开源** | 免费 | 付费订阅 |
+| 公众号 / 知乎 / 小红书 | **专用解析** | 不支持 | 不支持 |
+| Twitter / GitHub | **独立解析器** | 通用提取 | 通用提取 |
+| 图片自动上传 | **两阶段：秒存 + 后台替换** | 不稳定 | 支持 |
+| 多工作区 | **支持** | 支持 | 不支持 |
+| 数据库字段映射 | **9 字段自动匹配** | 不支持 | 支持 |
+| 保存去重 | **URL 级别 5 秒去重** | 无 | 无 |
+| 中断恢复 | **SW 自动续传** | 无 | 无 |
 
-### v0.3.8
-- 新增：popup 保存流程实时进度（"正在创建 Notion 页面..." → "正在保存 50/200 blocks (25%)..."）
-- 新增：右键/快捷键保存时 badge 显示分块进度（1/3, 2/3...）和重试标记（R1, R2）
-- 新增：网络重试可视化（popup 显示"网络不稳定，正在重试 (2/3)..."，badge 橙色 R 标记）
+---
 
-### v0.3.7
-- 新增：右键菜单"保存到 Notion"（任意网页右键即可保存，无需打开 popup）
-- 新增：全局快捷键 Ctrl+Shift+S / MacCtrl+Shift+S
-- 新增：页面内 toast 反馈（保存成功/失败在页面右上角弹出，点击"在 Notion 中打开"跳转）
-- 新增：插件图标 badge 状态提示（... → OK/!）
-- 新增：设置面板快捷键显示（读取 Chrome 实际配置、一键跳转修改）
-- 优化：设置面板 UI（超细滚动条、解绑虚线上分隔线、工作空间名标红、版本号右对齐）
+## 支持站点
 
-### v0.3.6
-- 修复：图片提取兼容性 — `<span leaf>`、`<a>`、`<li>`、`<blockquote>`、`<h1>-<h6>` 内图片不再丢失
-- 优化：设置页面布局重构（flex 布局、移除无用保存按钮、分隔线、版本号）
-- 优化：Workspace 视觉改进（彩色头像/图标、彩色边框、× 按钮对齐）
-- 优化：空状态引导（无连接空间时显示 OAuth 授权按钮）
-- 优化：Vercel 黑白主题下 workspace 边框改为中性色
-- 清理：CSS 残留死代码（旧 `.workspace-info`、`.logout-btn` 重复定义）
-- 修复：`loadSettings()` 遗留调用导致的边缘情况报错
+### 独立解析器（7 个）
 
-### v0.3.5
-- 重构：CSS 主题系统从选择器覆盖迁移到 CSS 变量驱动（维护性大幅提升）
-- 新增：Token 刷新失败时 Chrome 系统通知 + popup 内提示
-- 新增：Service Worker 保存中断恢复机制（storage 跟踪保存状态）
-- 优化：popup.js 模块化拆分（lib.js + render.js + popup.js）
-- 优化：storage key 常量化，消除重复 key 生成逻辑
-- 优化：死代码清理、const → var 统一、addEventListener 命名
-- 修复：Backend 健康检查 + 请求日志 + session 过期清理 + token-store 容错
-- 修复：tests/verify.js 中不存在的 test_connection action 引用
+专门编写了解析函数，提取精度远超通用工具：
 
-### v0.3.0
-- 新增：最近保存位置记忆，每个 workspace 独立记录最近使用的 5 个页面
-- 新增：页面搜索支持拼音/标题模糊匹配，结果按字母排序
-- 移除：图片 Base64 模式（Notion API 不支持 data: URL，推迟到后续通过 File Upload API 实现）
+| 网站 | 提取内容 | 特色 |
+|------|---------|------|
+| **微信公众号** | 标题、作者、正文、图片 | 15 层降级 + 50+ 噪声清理，三种文章格式 |
+| **Twitter/X** | 推文文本、作者、时间、图片、视频 | 线程结构保持，推文间分隔线 |
+| **GitHub** | README 渲染、Issue 正文+评论 | Markdown → Notion blocks，代码块语言检测 |
+| **知乎** | 问题描述 + 前 5 条高赞回答 | 折叠内容自动展开，React 懒加载兼容 |
+| **小红书** | 笔记正文、图片轮播、视频 | 评论区噪声过滤 |
+| **Medium** | 标题、正文段落、作者、时间 | CTA/推荐/互动按钮噪声清理 |
+| **Substack** | 标题、正文、作者、日期 | 付费墙/订阅 CTA 清理，自定义域名适配 |
 
-### v0.2.5
-- 新增：多空间管理（OAuth 授权，支持绑定多个 Notion 账号）
-- 新增：Raycast / Vercel 双主题
-- 新增：可编辑标题、保存后"在 Notion 中打开"快捷入口
-- 优化：公众号文章提取多层降级策略
+### 智能适配（30+ 站点）
 
-### v0.2.0
-- 从手动输入 Integration Token 改为 OAuth 2.0 登录
-- 支持 token 自动刷新
+没有独立解析器的网站，按域名分类匹配最优提取策略：
 
-### v0.1.0
-- 初始版本：网页内容提取 + 保存到 Notion
+- **博客平台** — Hashnode、Dev.to、WordPress、简书、博客园
+- **新闻媒体** — BBC、CNN、NYT、WSJ、路透社、彭博社、卫报
+- **科技媒体** — TechCrunch、36Kr、少数派、The Verge、Ars Technica
+- **加密媒体** — CoinDesk、BlockBeats、星球日报、Foresight、The Block
+- **通用降级** — 自动识别 article/main/post-content 语义标签，正则纯文本分块兜底
+
+---
 
 ## 功能
 
-- 自动提取当前网页内容（标题、正文、图片、代码块、表格等）
-- 公众号文章深度解析（15 个 selector 多层降级）
-- 保存到指定 Notion 页面或数据库
-- 右键菜单 + 全局快捷键，无需打开面板即可保存
-- 保存进度实时反馈（popup 内显示分块进度，badge 显示 chunk 进度）
-- 页面内 toast 通知（保存成功可点击跳转 Notion）
-- 多 Notion 空间管理（OAuth 授权，支持绑定多个 Notion 账号）
-- 最近保存位置记忆，按 workspace 独立记录
-- 2 种 UI 主题：Raycast（暗色金属）、Vercel（黑白精准）
-- 可编辑标题、空间切换、搜索过滤页面/数据库
-- 保存后快捷跳转"在 Notion 中打开"
+### 内容提取：不只是「抓全文」
+
+保留原文格式，去除广告噪声，11 种 Notion block 类型完整支持：
+
+段落 · H1/H2/H3 标题 · 引用 · 无序列表 · 有序列表 · 代码块（自动语言检测）· 分隔线 · 图片 · 视频 · 表格 · 富文本内联样式（加粗/斜体/删除线/链接/内联代码/文字颜色）
+
+### 图片永不丢失
+
+网页图片最大的痛点是外链过期。NotionSnap 用两阶段方案彻底解决：
+
+- **Phase 1 — 秒级落库**（< 1 秒）文字内容 + 图片 URL 立即写入，打开 Notion 就能看到完整文章
+- **Phase 2 — 后台替换** 扩展在后台下载每张图片，上传到 Notion 服务器托管，外链变永久
+
+### 智能保存，无需手动配置
+
+- **学习你的习惯** — 自动记住每个网站上次保存到哪个页面/数据库，下次自动选中
+- **数据库字段自动映射** — 保存到数据库时，自动按名称和类型匹配 URL、作者、发布时间、摘要、网站名称、语言、关键词、封面图、字数，共 9 个元数据字段
+- **保存预设** — 不同用途设不同目标（如「阅读笔记」「素材库」），弹窗顶部 5 色 pill 按钮一键切换
+- **保存去重** — 同一个 URL 5 秒内重复点击只生效一次
+
+### 三种保存方式
+
+| 方式 | 操作 | 适用场景 |
+|------|------|---------|
+| Popup 面板 | 点图标 → 预览编辑 → 保存 | 需要选择目标、编辑元数据 |
+| 右键菜单 | 页面右键 → 一键保存 | 快速剪藏，不中断阅读 |
+| 全局快捷键 | `Ctrl+Shift+S` | 高频用户，肌肉记忆 |
+
+### 稳定到你可以忘记它的存在
+
+- **3 层错误恢复** — 网络波动自动重试（3 次退避），API 限流自动等待，Token 过期自动刷新
+- **SW 中断续传** — 浏览器关闭后，后台任务下次启动时自动恢复，不丢数据
+- **保存进度透明** — popup 显示分块进度、badge 显示状态、toast 通知保存完成
+
+### 双主题
+
+- **Raycast 暗色主题** — 深色金属质感 + 紫红渐变，护眼且专业
+- **Vercel 黑白主题** — Geist 字体 + 1px 边框，极致简洁
+
+---
 
 ## 安装
 
-1. `npx vite build`
-2. Chrome 地址栏打开 `chrome://extensions`
-3. 开启"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择项目的 `dist` 目录
+### Chrome Web Store（推荐）
+
+*即将上架，届时搜索「NotionSnap」即可安装。*
+
+### 开发者模式
+
+```bash
+npx vite build
+```
+
+1. Chrome 打开 `chrome://extensions`，开启「开发者模式」
+2. 点击「加载已解压的扩展程序」，选择 `dist` 目录
+
+---
 
 ## 使用
 
-**方式一：Popup 面板**
-1. 点击扩展图标打开 popup
-2. 首次使用点击"连接到 Notion"完成 OAuth 授权
-3. 自动提取当前页面内容，可编辑标题
-4. 选择目标 Notion 页面/数据库
-5. 点击"保存到 Notion"，实时查看保存进度
+**1. 连接 Notion** — 点击扩展图标，点击「连接到 Notion」，OAuth 授权即可。支持绑定多个工作区。
 
-**方式二：右键菜单**
-- 任意网页右键 → "保存到 Notion"
+**2. 保存第一篇文章** — 打开任意网页 → 点击扩展图标 → 确认标题和内容预览 → 选择目标页面 → 点击「保存到 Notion」。
 
-**方式三：快捷键**
-- 默认 `Ctrl+Shift+S`（Mac: `MacCtrl+Shift+S`），可在 `chrome://extensions/shortcuts` 自定义
+**3. 快捷方式** — 右键菜单一键保存；快捷键 `Ctrl+Shift+S`（Mac: `MacCtrl+Shift+S`），可在 `chrome://extensions/shortcuts` 自定义。
 
-### 多空间
+---
 
-- 底部空间下拉框切换不同 Notion 账号
-- 点击 `+` 授权新的 Notion 账号
-- 设置面板（右上角 ⚙）管理已连接的空间，支持解绑
+## 隐私与安全
 
-## 技术
+你的数据，你做主：
 
-- Manifest V3
-- 纯原生 HTML/CSS/JS，零运行时依赖
-- Notion OAuth 2.0 + REST API v1
-- Vite + @crxjs/vite-plugin
-- OAuth 代理后端（Express + Railway 部署）
+- **数据直达** — 网页内容直接从浏览器发送到 Notion API，不经过任何第三方服务器
+- **OAuth 标准认证** — 不存储你的 Notion 密码
+- **Token 本地存储** — 仅在 Chrome 本地存储中，仅用于调用 Notion API
+- **100% 开源** — 所有代码在 [GitHub](https://github.com/xifengxx/notion-saver-ext) 公开，随时可审计
+- **仅必要权限** — `activeTab`、`storage`、`scripting`、`notifications`、`contextMenus`
+
+---
+
+## 常见问题
+
+**Q: 和 Notion 官方 Web Clipper 有什么区别？**
+官方 Clipper 经常保存失败、内容丢失。NotionSnap 专为中文内容优化，7 个独立解析器远超通用提取，且完全免费开源。
+
+**Q: 为什么有些图片在 Notion 里显示不了？**
+部分网站的 CDN 开启了防盗链。遇到这种情况图片会显示为占位链接，Phase 2 会自动尝试替换。
+
+**Q: 能保存到 Notion 数据库吗？**
+支持。扩展会自动检测目标类型（页面/数据库），保存到数据库时自动匹配 9 个元数据字段。
+
+**Q: 搜索结果里找不到我的页面？**
+Notion 公共 API 搜索上限 100 条。但你保存过的页面会被永久记住，不受此限制。
+
+---
+
+## 技术栈
+
+- **Manifest V3** · 纯原生 HTML/CSS/JS，零运行时依赖
+- **Notion API** · OAuth 2.0 + REST API v1
+- **构建** · Vite + @crxjs/vite-plugin
+- **图片上传** · Notion File Upload API（二进制直传 S3）
 
 ## 开发
 
 ```bash
 npm install
-npx vite build
+npx vite build          # 构建到 dist/
+node tests/verify.js    # 运行验证
 ```
+
+---
+
+## 更新概况
+
+**v0.6.0** — 新增 Twitter/X 独立解析（线程支持）+ GitHub 独立解析（README + Issues）+ Medium/Substack 增强 + 保存去重
+
+**v0.5.3** — 两阶段保存（Phase 1 秒存 + Phase 2 后台替换图片）+ SW 中断续传 + URL 三层匹配
+
+**v0.5.2** — 渐进式加载 + 滚动分页 + 搜索防抖 + 永久保存目标列表
+
+**v0.5.1** — 自动字段匹配（9 元数据字段）+ 页面列表缓存 + 元数据提取增强
+
+**v0.4.0** — 保存预设（pill 按钮）+ 保存历史 + File Upload 图片上传
+
+[完整变更日志 →](CHANGELOG.md)
+
+---
+
+## UI 预览
+
+![NotionSnap UI 全景](docs/screenshots-all.png)
+
+*12 个 UI 状态一览：Popup 面板双主题、元数据编辑展开、目标选择器、保存进度、设置面板（工作区管理 / 预设管理 / 历史记录）*
+
+---
 
 ## License
 
