@@ -66,14 +66,13 @@ notion-saver-ext/
 ## 已实现功能
 
 ### 内容提取（extractor.js）
-- 公众号专用解析器：15 个内容 selector 多层降级，覆盖标准文章、纯文字说说、图文说说
-- 通用网页提取：自定义 DOM 遍历（非 Readability），支持 article/main/post-content 等
-- HTML → Notion blocks：paragraph、heading_1-6、quote、bulleted_list_item、numbered_list_item、code（含语言检测）、divider、image（外部 URL）、table（原生 Notion 表格）
-- 富文本保持：加粗、斜体、删除线、内联颜色、链接（含 data-href 回退）
-- 代码块行号清理、多行换行保持（遍历子元素，非 textContent）
-- `<br>` 分段处理（说说类文章用 `<br>` 分段，拆成多个 Notion 段落）
-- 图片处理：data-src/data-original 提取、URL 清理、防盗链 hash 去除
-- 公众号噪声清理：赞赏、评论、弹窗、底部引导等 40+ 个 selector
+- 7 个独立解析器：微信公众号（15 层降级 + 50+ 噪声清理）、Twitter/X 线程、GitHub README & Issues、知乎问答、小红书笔记、Medium、Substack（含自定义域名）
+- 30+ 站点智能适配：按域名分类匹配最优选择器和噪声规则（博客/新闻/科技/加密/通用）
+- HTML → Notion blocks：paragraph、heading_1-3、quote、bulleted_list_item、numbered_list_item、code（含语言检测）、divider、image（外部 URL）、table、embed（视频嵌入）、video（外部 mp4）
+- 视频处理：YouTube/Bilibili/TikTok/Douyin 页面解析 + embed block，文章内嵌 iframe 提取，CDN 不可达时蓝色加粗占位符降级
+- 富文本保持：加粗、斜体、删除线、内联代码、11 种文字颜色、链接（含 data-href 回退）
+- 元数据提取：作者、发布时间、摘要、封面图、语言、字数（中英文 N-gram 关键词）
+- block 类型安全：三层验证防御（内容脚本过滤 → SW 安全网 → SW 内容字段验证）
 - 安全网：DOM 遍历返回 0 blocks 时，正则提取纯文本分块（1500 字符/块）
 
 ### Notion API 集成（service.js）
@@ -109,8 +108,8 @@ notion-saver-ext/
 
 ## 已知问题 / 待办
 
-1. **搜索优化持续迭代**：v0.5.2 已完成渐进加载、滚动分页、防抖、永久保存目标。Notion 公共 API 100 条硬限制无法根治，后续需继续优化搜索精准度
-2. **Chrome Web Store 上架**（P0）：需准备截图、描述、隐私政策
-3. **图片上传性能**（P1）：当前图片上传导致保存耗时长，需优化
-4. **多网站适配**（P1）：Twitter、博客等非公众号网页提取质量待提升
-5. **自动化测试**：tests/verify.js 需更新覆盖 v0.5.x 新特性
+1. **Chrome Web Store 上架**（P0）：需注册 Google 开发者账号，素材已备齐
+2. **图片上传成功率**（P1）：CDN 防盗链图片（微信、少数派等）Phase 2 替换到 Notion S3 会失败
+3. **更多网站适配**（P1）：Mirror.xyz、Newsletter 平台、BBC/CNN 精调
+4. **多浏览器适配**（P2）：Firefox MV3 + Edge
+5. **自动化测试**：tests/verify.js 需更新覆盖 v0.6.x 新特性
