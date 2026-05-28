@@ -305,18 +305,30 @@ function richTextFromNode(node) {
   }
   if (tag === 'a') {
     var href = node.getAttribute('href') || '';
-    var content = decodeHtml(node.textContent);
-    if (!content) return [];
     // 处理 WeChat 链接：有些链接 href 为空，实际 URL 在 data-href 或 data-linkdata
     if (!href || href === 'javascript:void(0)' || href.indexOf('http') !== 0) {
       href = node.getAttribute('data-href') || node.getAttribute('data-linkdata') || '';
     }
+    // 递归处理子节点，保留内联格式（加粗、斜体等），避免 textContent 丢失格式
+    var childTexts = [];
+    var aChildren = node.childNodes;
+    for (var ai = 0; ai < aChildren.length; ai++) {
+      var ct = richTextFromNode(aChildren[ai]);
+      for (var aj = 0; aj < ct.length; aj++) {
+        childTexts.push(ct[aj]);
+      }
+    }
+    if (childTexts.length === 0) return [];
     // 验证并清理 URL（去掉 fragment，Notion 不接受非 http 链接）
     if (href && href.indexOf('http') === 0) {
       var cleanHref = href.split('#')[0];
-      return [{ type: 'text', text: { content: content, link: { url: cleanHref } } }];
+      for (var ak = 0; ak < childTexts.length; ak++) {
+        if (childTexts[ak].text) {
+          childTexts[ak].text.link = { url: cleanHref };
+        }
+      }
     }
-    return [{ type: 'text', text: { content: content } }];
+    return childTexts;
   }
   if (tag === 'br') return [];
 
@@ -335,22 +347,95 @@ function richTextFromNode(node) {
 // ============================================================
 // DOM 遍历转换（保持原始顺序）
 // ============================================================
+
+// 内联元素标签：累积到同一段落，不单独创建 block
+var INLINE_TAGS = ['span', 'label', 'font', 'strong', 'b', 'em', 'i', 'u', 's', 'del', 'strike', 'sub', 'sup', 'mark', 'small', 'a', 'abbr', 'cite', 'dfn', 'kbd', 'q', 'samp', 'time', 'var', 'wbr'];
+
+// 块级标签：遇到时先 flush buffer 再独立处理
+var BLOCK_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'blockquote', 'ul', 'ol', 'pre', 'hr', 'img', 'video', 'table', 'br', 'div', 'section', 'article', 'main', 'figure', 'figcaption', 'picture', 'header', 'footer', 'aside', 'nav'];
+
+function isBlockTag(tag) {
+  return BLOCK_TAGS.indexOf(tag) !== -1 || tag.indexOf('-') !== -1;
+}
+
 function domToBlocks(element, blocks) {
   if (!element) return;
   var children = element.childNodes;
+  var inlineBuffer = [];
+
+  function flushInlineBuffer() {
+    if (inlineBuffer.length > 0) {
+      pushParagraphChunks(blocks, inlineBuffer);
+      inlineBuffer = [];
+    }
+  }
+
   for (var i = 0; i < children.length; i++) {
     var child = children[i];
+
+    // 文本节点：累积到 buffer
     if (child.nodeType === TEXT_NODE) {
       var text = child.textContent.trim();
-      if (text) blocks.push(paragraphBlock([{ type: 'text', text: { content: decodeHtml(text) } }]));
+      if (text) inlineBuffer.push({ type: 'text', text: { content: decodeHtml(text) } });
       continue;
     }
 
     if (child.nodeType !== ELEMENT_NODE) continue;
 
     var tag = child.tagName.toLowerCase();
+
+    // <br>：flush 当前段落，开始新段落
+    if (tag === 'br') {
+      flushInlineBuffer();
+      continue;
+    }
+
+    // <code> 内联用法：不在 pre 内 → 作为内联代码加入 buffer
+    if (tag === 'code') {
+      var ancestor = child.parentElement;
+      var inPre = false;
+      while (ancestor) {
+        if (ancestor.tagName.toLowerCase() === 'pre') { inPre = true; break; }
+        ancestor = ancestor.parentElement;
+      }
+      if (!inPre) {
+        var codeContent = child.textContent || '';
+        if (codeContent) inlineBuffer.push({ type: 'text', text: { content: codeContent }, annotations: { code: true } });
+        continue;
+      }
+      // 在 pre 内 → 由 pre 处理器处理，跳过
+      continue;
+    }
+
+    // 内联元素：提取 rich text 并累积到 buffer
+    if (INLINE_TAGS.indexOf(tag) !== -1) {
+      var hasBlockChild = false;
+      var childEls = child.children;
+      for (var ci = 0; ci < childEls.length; ci++) {
+        if (isBlockTag(childEls[ci].tagName.toLowerCase())) {
+          hasBlockChild = true;
+          break;
+        }
+      }
+      if (hasBlockChild) {
+        flushInlineBuffer();
+        domToBlocks(child, blocks);
+      } else {
+        var rt = richTextFromNode(child);
+        for (var j = 0; j < rt.length; j++) {
+          inlineBuffer.push(rt[j]);
+        }
+      }
+      continue;
+    }
+
+    // 块级 / 容器元素：先 flush buffer，再独立处理
+    flushInlineBuffer();
     processElement(child, tag, blocks);
   }
+
+  // 收尾：flush 剩余 buffer
+  flushInlineBuffer();
 }
 
 function processElement(el, tag, blocks) {
@@ -534,8 +619,8 @@ function processElement(el, tag, blocks) {
   else if (['div', 'section', 'article', 'main', 'figure', 'figcaption', 'picture', 'header', 'footer', 'aside', 'nav', 'a'].indexOf(tag) !== -1 || tag.indexOf('-') !== -1) {
     domToBlocks(el, blocks);
   }
-  // 纯文本容器（span、label 等内联元素包裹的文字）
-  else if (['span', 'label', 'font'].indexOf(tag) !== -1) {
+  // 纯文本容器 + 内联格式标签（span、strong、em 等包裹的文字，用 richTextFromNode 提取格式）
+  else if (['span', 'label', 'font', 'strong', 'b', 'em', 'i', 'u', 's', 'del', 'strike', 'sub', 'sup', 'mark', 'small', 'code'].indexOf(tag) !== -1) {
     var hasBlockChild = false;
     var children2 = el.children;
     for (var ci = 0; ci < children2.length; ci++) {

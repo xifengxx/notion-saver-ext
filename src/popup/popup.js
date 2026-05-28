@@ -104,7 +104,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 保存按钮
   saveBtn.addEventListener('click', () => {
-    if (!extractedData) return;
+    if (!extractedData || saveBtn.disabled) return;
+    saveBtn.disabled = true;
     saveToNotion(extractedData);
   });
 
