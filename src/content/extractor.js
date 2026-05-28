@@ -552,7 +552,10 @@ function processElement(el, tag, blocks) {
       if (rtSpan.length > 0) blocks.push(paragraphBlock(rtSpan));
     }
   }
-  // 其他忽略
+  // 未识别的元素：不丢弃，递归处理子节点（避免 <details>/<summary> 等元素内容丢失）
+  else {
+    domToBlocks(el, blocks);
+  }
 }
 
 function processListItem(li, blocks, listType) {
@@ -741,6 +744,13 @@ function finalizeExtractedData(data) {
     }
 
     // 防御性过滤 + 图片去重
+    var blockTypes = {};
+    for (var bi0 = 0; bi0 < blocks.length; bi0++) {
+      var bt = blocks[bi0].type || 'unknown';
+      blockTypes[bt] = (blockTypes[bt] || 0) + 1;
+    }
+    console.log('[NotionSnap] Block type summary:', JSON.stringify(blockTypes), 'total:', blocks.length);
+
     var seenUrls = {};
     var dedupedBlocks = [];
     var dedupedCount = 0;
@@ -759,7 +769,20 @@ function finalizeExtractedData(data) {
           dedupedCount++;
           continue;
         }
+        if (!/^https?:\/\//i.test(imgUrl)) {
+          invalidCount++;
+          console.log('[NotionSnap] Drop image with invalid URL:', imgUrl.substring(0, 200));
+          continue;
+        }
         seenUrls[imgUrl] = true;
+      }
+      if (b.type === 'video' && b.video && b.video.external && b.video.external.url) {
+        var vidUrl = b.video.external.url;
+        if (!/^https?:\/\//i.test(vidUrl)) {
+          invalidCount++;
+          console.log('[NotionSnap] Drop video with invalid URL:', vidUrl.substring(0, 200));
+          continue;
+        }
       }
       dedupedBlocks.push(b);
     }
