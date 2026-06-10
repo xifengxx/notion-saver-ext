@@ -4,7 +4,7 @@
 
 Chrome 扩展，一键保存任意网页到 Notion。7 个网站专用解析器 + 30+ 站点智能适配，专为中文内容生态深度优化。Notion Web Clipper 的最佳免费替代品。
 
-当前版本：**v0.6.0** | [变更日志](CHANGELOG.md) | [Chrome Web Store](#)（即将上架）
+当前版本：**v0.6.1** | [变更日志](CHANGELOG.md) | [Chrome Web Store](https://chromewebstore.google.com/detail/notionsnap/eedapefdokhmncpgomaagjipfbafhhgi)
 
 ---
 
@@ -109,7 +109,7 @@ Chrome 扩展，一键保存任意网页到 Notion。7 个网站专用解析器 
 
 ### Chrome Web Store（推荐）
 
-*即将上架，届时搜索「NotionSnap」即可安装。*
+[安装 NotionSnap](https://chromewebstore.google.com/detail/notionsnap/eedapefdokhmncpgomaagjipfbafhhgi)
 
 ### 开发者模式
 

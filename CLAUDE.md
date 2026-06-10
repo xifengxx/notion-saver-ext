@@ -108,7 +108,7 @@ notion-saver-ext/
 
 ## 已知问题 / 待办
 
-1. **Chrome Web Store 上架**（P0）：需注册 Google 开发者账号，素材已备齐
+1. **Chrome Web Store 上架**（P0）：✅ 已上架 [安装链接](https://chromewebstore.google.com/detail/notionsnap/eedapefdokhmncpgomaagjipfbafhhgi)
 2. **图片上传成功率**（P1）：CDN 防盗链图片（微信、少数派等）Phase 2 替换到 Notion S3 会失败
 3. **更多网站适配**（P1）：Mirror.xyz、Newsletter 平台、BBC/CNN 精调
 4. **多浏览器适配**（P2）：Firefox MV3 + Edge

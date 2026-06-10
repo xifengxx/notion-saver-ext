@@ -52,23 +52,14 @@ One-click save any webpage to Notion. Dedicated parsers for Twitter, GitHub, WeC
 
 市面上所有 Notion 剪藏工具都用一套通用逻辑处理所有网页。NotionSnap 不一样 —— 我们为每个网站单独编写了解析函数。
 
-| 网站 | 提取内容 | 特色 |
-|------|---------|------|
-| **微信公众号** | 标题、作者、正文、图片 | 15 层降级 + 50+ 噪声清理，三种文章格式全覆盖 |
-| **Twitter/X** | 推文文本、作者、时间、图片、视频 | 线程结构保持，推文间分隔线 |
-| **GitHub** | README 渲染、Issue 正文+评论 | Markdown → Notion blocks，代码块语言检测 |
-| **知乎** | 问题描述 + 前 5 条高赞回答 | 折叠内容自动展开，React 懒加载兼容 |
-| **小红书** | 笔记正文、图片轮播、视频 | 评论区噪声过滤 |
-| **Medium** | 标题、正文、作者、时间 | CTA/推荐/互动按钮噪声清理 |
-| **Substack** | 标题、正文、作者、日期 | 付费墙/订阅 CTA 清理，自定义域名适配 |
+- 多层降级提取 + 噪声清理，覆盖多种文章格式和页面结构
+- 富文本完整保留：加粗、斜体、代码块、表格、引用，语言自动检测
+- 元数据自动抓取：标题、作者、发布时间、摘要、封面图
+- 内容安全网：极端情况下正则兜底提取纯文本，不让你空手而归
 
 ### 30+ 站点智能适配
 
-没有独立解析器的网站，按域名分类匹配最优提取策略：博客平台（Hashnode、Dev.to、WordPress、简书、博客园）、新闻媒体（BBC、CNN、NYT、WSJ、路透社、卫报）、科技媒体（TechCrunch、36Kr、少数派、The Verge）、加密媒体（CoinDesk、BlockBeats、星球日报、Foresight）……还有通用降级兜底。
-
-### 不只文字，视频也能保存
-
-YouTube / Bilibili / TikTok / Douyin 视频页面自动识别，转为 embed block。文章内嵌的视频（iframe）自动提取。防盗链视频降级为蓝色加粗文字标记，一目了然。
+没有独立解析器的网站，按域名分类匹配最优提取策略——覆盖博客平台、新闻媒体、科技媒体、加密媒体等主流内容站点，自动识别页面结构、清理噪声元素。未适配网站有通用语义提取兜底。
 
 ### 11 种 Notion block 类型完整支持
 
@@ -206,13 +197,9 @@ Network errors get 3 automatic retries with exponential backoff. Rate limits aut
 
 ### Supported Sites
 
-**Dedicated parsers (7):** WeChat Official Accounts, Twitter/X, GitHub (README + Issues), Zhihu, Xiaohongshu, Medium, Substack
+**Smart genre adapters (30+ categories):** Automatically detects site type and applies the optimal extraction strategy — covering blogging platforms, news media, tech outlets, and crypto publications. Multi-layer fallback with noise cleanup preserves formatting across diverse page structures.
 
-**Smart genre adapters (30+ categories):** Hashnode, Dev.to, WordPress, Jian Shu, Cnblogs, BBC, CNN, NYT, WSJ, Reuters, Bloomberg, The Guardian, TechCrunch, 36Kr, SSPAI, The Verge, Ars Technica, CoinDesk, BlockBeats, Odaily, Foresight, The Block, and more.
-
-**Video platforms:** YouTube, Bilibili, TikTok, Douyin — page recognition + embed block
-
-**Universal fallback:** Any webpage with standard semantic HTML (article, main, post-content) gets clean extraction. Pure text regex backup as last resort.
+**Universal fallback:** Any webpage with standard semantic HTML gets clean extraction. Pure text regex backup as last resort.
 
 ---
 
