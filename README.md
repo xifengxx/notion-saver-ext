@@ -195,7 +195,7 @@ node tests/verify.js    # 运行验证
 
 ## UI 预览
 
-![NotionSnap UI 全景](docs/screenshots-all.png)
+![NotionSnap UI 全景](assets/screenshots.png)
 
 *12 个 UI 状态一览：Popup 面板双主题、元数据编辑展开、目标选择器、保存进度、设置面板（工作区管理 / 预设管理 / 历史记录）*
 

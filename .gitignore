@@ -3,3 +3,13 @@ dist
 .env
 backend/.env
 backend/token-store.json
+
+# 过程文件（不进入版本控制）
+docs/
+pic/
+research/
+code-audit-*.md
+design-comparison.html
+AGENTS.md
+NotionSnap-v0.4.0.zip
+.DS_Store
