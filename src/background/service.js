@@ -41,13 +41,20 @@ chrome.runtime.onInstalled.addListener(function() {
 var oauthPollTimers = {};
 var _pendingSaves = {}; // 去重：正在保存的 URL → timestamp，防止重复创建页面
 
+function cleanupStalePendingSaves() {
+  var now = Date.now();
+  var staleThreshold = now - 30000;
+  var keys = Object.keys(_pendingSaves);
+  for (var k = 0; k < keys.length; k++) {
+    var url = keys[k];
+    if (_pendingSaves[url] < staleThreshold) {
+      delete _pendingSaves[url];
+    }
+  }
+}
+
 function generateSessionId() {
-  var d = Date.now();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = (d + Math.random() * 16) % 16 | 0;
-    d = Math.floor(d / 16);
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
+  return crypto.randomUUID();
 }
 
 function startOAuthLogin() {
@@ -188,11 +195,47 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
       if (q) body.query = q;
       if (filterObj) body.filter = filterObj;
       if (message.sort) body.sort = { direction: message.sort, timestamp: 'last_edited_time' };
+      if (message.start_cursor) body.start_cursor = message.start_cursor;
 
       notionFetch('/v1/search', token, { method: 'POST', body: JSON.stringify(body) })
         .then(function(response) {
           var data = parseSearchResponse(response);
-          sendResponse({ success: true, pages: data.pages, databases: data.databases });
+          sendResponse({
+            success: true,
+            pages: data.pages,
+            databases: data.databases,
+            has_more: response.has_more || false,
+            next_cursor: response.next_cursor || null,
+          });
+        })
+        .catch(function(err) {
+          sendResponse({ success: false, error: err.message, pages: [], databases: [] });
+        });
+    });
+    return true;
+  }
+
+  if (message.action === 'fetch_pages_more') {
+    getValidToken().then(function(token) {
+      if (!token) {
+        sendResponse({ success: false, error: '未登录', pages: [], databases: [] });
+        return;
+      }
+      var body2 = { page_size: 100, start_cursor: message.start_cursor };
+      if (message.query) body2.query = message.query;
+      if (message.filter) body2.filter = { property: 'object', value: message.filter };
+      if (message.sort) body2.sort = { direction: message.sort, timestamp: 'last_edited_time' };
+
+      notionFetch('/v1/search', token, { method: 'POST', body: JSON.stringify(body2) })
+        .then(function(response) {
+          var data = parseSearchResponse(response);
+          sendResponse({
+            success: true,
+            pages: data.pages,
+            databases: data.databases,
+            has_more: response.has_more || false,
+            next_cursor: response.next_cursor || null,
+          });
         })
         .catch(function(err) {
           sendResponse({ success: false, error: err.message, pages: [], databases: [] });
@@ -281,6 +324,7 @@ function refreshToken(refreshTokenValue) {
 // Notion API 核心保存流程
 // ============================================================
 function saveToNotion(data, parentPageId, workspaceBotId, targetType, sourceTabId) {
+  cleanupStalePendingSaves();
   // 去重：同一 URL 5 秒内不重复保存
   var saveUrl = (data && data.url) || '';
   if (saveUrl && _pendingSaves[saveUrl] && Date.now() - _pendingSaves[saveUrl] < 5000) {
@@ -354,7 +398,7 @@ function saveToNotion(data, parentPageId, workspaceBotId, targetType, sourceTabI
           continue;
         }
         // 需要 rich_text 的 block 类型
-        var needsRichText = ['paragraph','heading_1','heading_2','heading_3','heading_4','heading_5','heading_6','quote','bulleted_list_item','numbered_list_item','code','callout','to_do','toggle'];
+        var needsRichText = ['paragraph','heading_1','heading_2','heading_3','quote','bulleted_list_item','numbered_list_item','code','callout','to_do','toggle'];
         if (needsRichText.indexOf(vt) !== -1) {
           if (!vb[vt].rich_text || !Array.isArray(vb[vt].rich_text)) {
             validationDropped++;
@@ -735,20 +779,35 @@ function createPage(token, data, parent, botId, fieldMapping) {
     method: 'POST',
     body: JSON.stringify(body),
   }).catch(function(err) {
-    // 兜底：type 标记为 page 但实际是 database 的情况
-    if (!isDatabase && err.message &&
-        (err.message.indexOf('Could not find page') >= 0 ||
-         err.message.indexOf('parent') >= 0 ||
-         err.message.indexOf('Parent') >= 0)) {
-      var dbBody = {
-        parent: { database_id: parent.id },
-        properties: properties,
-        children: children,
-      };
-      return notionFetch('/v1/pages', token, {
-        method: 'POST',
-        body: JSON.stringify(dbBody),
-      });
+    // 兜底：检测错误类型并自动切换
+    if (err.message) {
+      // 情况1：传入了 page_id 但实际应该是 database_id
+      if (err.message.indexOf('is a page, not a database') >= 0) {
+        var dbBody = {
+          parent: { database_id: parent.id },
+          properties: properties,
+          children: children,
+        };
+        return notionFetch('/v1/pages', token, {
+          method: 'POST',
+          body: JSON.stringify(dbBody),
+        });
+      }
+      // 情况2：传入了 database_id 但实际应该是 page_id
+      if (!isDatabase && (
+          err.message.indexOf('Could not find page') >= 0 ||
+          err.message.indexOf('parent') >= 0 ||
+          err.message.indexOf('Parent') >= 0)) {
+        var dbBody = {
+          parent: { database_id: parent.id },
+          properties: properties,
+          children: children,
+        };
+        return notionFetch('/v1/pages', token, {
+          method: 'POST',
+          body: JSON.stringify(dbBody),
+        });
+      }
     }
     throw err;
   });
@@ -1770,6 +1829,7 @@ function notionFetch(path, token, options, apiVersion) {
   var version = apiVersion || '2022-06-28';
   var maxRetries = 3;
   var attempt = 0;
+  var retry429 = 0;
 
   function doFetch() {
     attempt++;
@@ -1790,6 +1850,10 @@ function notionFetch(path, token, options, apiVersion) {
         var errorMsg = errorBody.message || 'HTTP ' + response.status;
 
         if (response.status === 429) {
+          retry429++;
+          if (retry429 > 5) {
+            throw new Error('请求过于频繁，请稍后再试: ' + errorMsg);
+          }
           var retryAfter = parseInt(response.headers.get('Retry-After') || '5');
           return delay(retryAfter * 1000).then(function() {
             return doFetch();

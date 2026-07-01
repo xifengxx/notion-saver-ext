@@ -12,8 +12,8 @@
       <h1>NotionSnap</h1>
       <div class="header-actions">
         <button id="theme-btn" class="theme-indicator" title="切换主题">Raycast</button>
-        <button id="history-btn" class="icon-btn" title="保存历史">🕐</button>
-        <button id="settings-btn" class="icon-btn" title="设置">⚙</button>
+        <button id="history-btn" class="icon-btn" title="保存历史"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+        <button id="settings-btn" class="icon-btn" title="设置"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
       </div>
     </header>
 
@@ -30,6 +30,7 @@
     <div id="main-content">
       <!-- 1. 内容预览（可编辑标题 + 元信息展开） -->
       <div class="content-section">
+        <label class="section-label">保存内容</label>
         <div id="content-preview">
           <p class="loading">正在提取页面内容...</p>
         </div>
@@ -40,11 +41,11 @@
 
       <!-- 2. 保存到 Notion 页面选择器（可搜索下拉框） -->
       <div class="save-section">
-        <label>保存到：</label>
+        <label class="section-label">保存到：</label>
         <div class="card">
           <div class="page-picker-trigger" id="page-picker-trigger">
             <input type="text" id="page-search" placeholder="选择或搜索目标页面..." autocomplete="off">
-            <span class="page-picker-arrow">▾</span>
+            <span class="page-picker-arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
           </div>
         </div>
         <div id="page-picker-dropdown" class="page-picker-dropdown hidden">
@@ -57,6 +58,10 @@
 
       <!-- 预设快捷选择 -->
       <div id="presets-section" class="presets-section hidden">
+        <div class="presets-header">
+          <label class="section-label">选择预设</label>
+          <button id="preset-add-btn" class="preset-add-btn" title="添加预设">+</button>
+        </div>
         <div id="presets-row" class="presets-row"></div>
         <div id="preset-create-form" class="preset-create-form hidden">
           <input type="text" id="preset-name-input" placeholder="预设名称，如：公众号文章" maxlength="20">
@@ -85,21 +90,28 @@
       <!-- 6. 分隔线 + Workspace 选择器 -->
       <div class="divider"></div>
       <div class="workspace-section">
-        <label>空间</label>
-        <div class="card workspace-card">
-          <select id="workspace-select">
-            <option value="">加载中...</option>
-          </select>
+        <label class="section-label">空间</label>
+        <div class="workspace-row">
+          <div class="card workspace-picker-trigger" id="workspace-picker-trigger">
+            <div class="workspace-picker-inner">
+              <span id="workspace-picker-text">加载中...</span>
+              <span class="workspace-picker-arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+            </div>
+          </div>
+          <button class="icon-btn small add-ws-btn-main" title="添加空间">+</button>
         </div>
-        <button class="icon-btn small add-ws-btn-main" title="添加空间">+</button>
       </div>
+      <div class="workspace-picker-dropdown hidden" id="workspace-picker-dropdown">
+        <div id="workspace-list"></div>
+      </div>
+      <div class="shortcut-hint">Ctrl+Shift+S 快速保存</div>
     </div>
 
     <div id="settings-panel" class="settings-panel hidden">
       <div class="settings-header">
-        <button id="back-from-settings" class="settings-icon-btn" title="返回">‹</button>
+        <button id="back-from-settings" class="settings-icon-btn" title="返回"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
         <h2>设置</h2>
-        <button id="close-settings" class="settings-icon-btn" title="关闭">×</button>
+        <button id="close-settings" class="settings-icon-btn" title="关闭"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="settings-body">
         <div class="workspace-manage">
@@ -146,16 +158,16 @@
           </div>
           <div id="settings-presets-list"></div>
         </div>
-        <div class="settings-footer">v0.5.1</div>
+        <div class="settings-footer">v0.6.1</div>
       </div>
     </div>
 
     <!-- 保存历史面板 -->
     <div id="history-panel" class="history-panel hidden">
       <div class="settings-header">
-        <button id="back-from-history" class="settings-icon-btn" title="返回">‹</button>
+        <button id="back-from-history" class="settings-icon-btn" title="返回"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
         <h2>保存历史</h2>
-        <button id="close-history" class="settings-icon-btn" title="关闭">×</button>
+        <button id="close-history" class="settings-icon-btn" title="关闭"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="history-body">
         <div id="history-list"></div>

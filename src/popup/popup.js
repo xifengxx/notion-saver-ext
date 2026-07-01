@@ -22,12 +22,17 @@ document.addEventListener('DOMContentLoaded', () => {
   var unbindConfirmText = document.getElementById('unbind-confirm-text');
   var unbindConfirmCancel = document.getElementById('unbind-confirm-cancel');
   var unbindConfirmOk = document.getElementById('unbind-confirm-ok');
-  var workspaceSelect = document.getElementById('workspace-select');
+  var workspacePicker = document.getElementById('workspace-picker-trigger');
+  var workspacePickerText = document.getElementById('workspace-picker-text');
+  var workspacePickerDropdown = document.getElementById('workspace-picker-dropdown');
+  var workspaceList = document.getElementById('workspace-list');
+  var workspaceSection = document.querySelector('.workspace-section');
   var themeBtn = document.getElementById('theme-btn');
   var pageSearch = document.getElementById('page-search');
   var pageList = document.getElementById('page-list');
   var pagePickerTrigger = document.getElementById('page-picker-trigger');
   var pagePickerDropdown = document.getElementById('page-picker-dropdown');
+  var popup = document.querySelector('.popup');
   var openInNotion = document.getElementById('open-in-notion');
   var historyBtn = document.getElementById('history-btn');
   var historyPanel = document.getElementById('history-panel');
@@ -115,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     mainContent.classList.add('hidden');
     document.querySelector('header').classList.add('hidden');
     closeDropdown();
+    closeWorkspaceDropdown();
     renderSettingsWorkspaceList(workspaces, currentWorkspaceBotId, settingsWorkspaceList, showUnbindConfirm, startOAuthLogin);
   });
 
@@ -196,6 +202,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   document.addEventListener('click', handleOutsideClick);
 
+  // Close workspace dropdown on outside click
+  document.addEventListener('click', function(e) {
+    if (!workspacePickerDropdown.classList.contains('hidden') && !workspacePickerDropdown.contains(e.target) && e.target !== workspacePicker && !workspacePicker.contains(e.target)) {
+      closeWorkspaceDropdown();
+    }
+  });
+
   // "在 Notion 中打开" 链接
   openInNotion.addEventListener('click', () => {
     if (savedPageUrl) {
@@ -206,15 +219,49 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Workspace 切换
-  workspaceSelect.addEventListener('change', () => {
-    var botId = workspaceSelect.value;
-    if (!botId) return;
-    // 切换空间时清除"在 Notion 中打开"
+  // Workspace 自定义下拉框切换
+  workspacePicker.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (workspacePickerDropdown.classList.contains('hidden')) {
+      // Close page dropdown if open
+      if (!pagePickerDropdown.classList.contains('hidden')) closeDropdown();
+      openWorkspaceDropdown();
+    } else {
+      closeWorkspaceDropdown();
+    }
+  });
+
+  function openWorkspaceDropdown() {
+    var parent = workspaceSection.parentNode;
+    if (workspaceSection.nextSibling !== workspacePickerDropdown) {
+      parent.insertBefore(workspacePickerDropdown, workspaceSection.nextSibling);
+    }
+    workspacePickerDropdown.classList.remove('hidden');
+    popup.classList.add('dropdown-active');
+    popup.classList.add('workspace-dropdown-active');
+    requestAnimationFrame(function() {
+      popup.scrollTop = popup.scrollHeight;
+    });
+  }
+
+  function closeWorkspaceDropdown() {
+    workspacePickerDropdown.classList.add('hidden');
+    if (workspaceSection.nextSibling !== workspacePickerDropdown) {
+      workspaceSection.parentNode.insertBefore(workspacePickerDropdown, workspaceSection.nextSibling);
+    }
+    popup.classList.remove('workspace-dropdown-active');
+    if (pagePickerDropdown.classList.contains('hidden')) {
+      popup.classList.remove('dropdown-active');
+    }
+  }
+
+  function switchWorkspace(botId) {
+    if (!botId || botId === currentWorkspaceBotId) return;
     openInNotion.classList.add('hidden');
     savedPageUrl = null;
-
-    chrome.storage.local.set({ [STORE.CURRENT_BOT]: botId }, () => {
+    chrome.storage.local.set({ [STORE.CURRENT_BOT]: botId }, function() {
       currentWorkspaceBotId = botId;
+      workspacePickerText.textContent = wsDisplayName(botId);
       allPages = [];
       allDatabases = [];
       targetPage.value = '';
@@ -224,7 +271,21 @@ document.addEventListener('DOMContentLoaded', () => {
       pageList.innerHTML = '<div class="page-list-loading">加载中...</div>';
       loadPageData();
     });
-  });
+  }
+
+  function wsDisplayName(botId) {
+    for (var i = 0; i < workspaces.length; i++) {
+      if (workspaces[i].bot_id === botId) return workspaces[i].workspace_name || 'Notion';
+    }
+    return botId || 'Notion';
+  }
+
+  function wsColor(botId) {
+    var colors = ['#6C5CE7','#00B894','#0984E3','#E17055','#FDCB6E','#E84393','#00CEC9'];
+    var hash = 0;
+    for (var i = 0; i < botId.length; i++) { hash = botId.charCodeAt(i) + ((hash << 5) - hash); }
+    return colors[Math.abs(hash) % colors.length];
+  }
 
   // 快捷键提示（从 Chrome API 读取实际快捷键）
   var shortcutKeyEl = document.getElementById('shortcut-key');
@@ -264,6 +325,29 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 两个 + 按钮都绑定添加空间
+  
+  // Preset add button (in header)
+  var presetAddBtn = document.getElementById('preset-add-btn');
+  if (presetAddBtn) {
+    presetAddBtn.addEventListener('click', function() {
+      if (!targetPage.value) {
+        showStatus('请先在"保存到"下拉框中选择目标页面', 'loading');
+        setTimeout(function() {
+        statusEl.style.transition = 'opacity 0.3s ease';
+        statusEl.style.opacity = '0';
+        setTimeout(function() {
+          statusEl.className = 'status hidden';
+          statusEl.style.opacity = '';
+          statusEl.style.transition = '';
+        }, 300);
+      }, 2500);
+        return;
+      }
+      presetCreateForm.classList.remove('hidden');
+      presetNameInput.value = '';
+      presetNameInput.focus();
+    });
+  }
   document.querySelectorAll('.add-ws-btn-main, .settings-add-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       startOAuthLogin();
@@ -355,15 +439,42 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
 
   function refreshWorkspaceUI() {
-    workspaceSelect.innerHTML = '';
+    // Update picker text
+    var currentName = 'Notion';
+    for (var i = 0; i < workspaces.length; i++) {
+      if (workspaces[i].bot_id === currentWorkspaceBotId) {
+        currentName = workspaces[i].workspace_name || 'Notion';
+        break;
+      }
+    }
+    workspacePickerText.textContent = currentName;
+
+    // Render workspace dropdown items
+    var html = '';
     for (var i = 0; i < workspaces.length; i++) {
       var ws = workspaces[i];
-      var opt = document.createElement('option');
-      opt.value = ws.bot_id;
-      opt.textContent = ws.workspace_name || 'Notion';
-      if (ws.bot_id === currentWorkspaceBotId) opt.selected = true;
-      workspaceSelect.appendChild(opt);
+      var name = ws.workspace_name || 'Notion';
+      var activeClass = ws.bot_id === currentWorkspaceBotId ? ' active' : '';
+      html += '<div class="ws-item' + activeClass + '" data-ws-id="' + ws.bot_id + '">' +
+        '<span class="ws-avatar-dot" style="background:' + wsColor(ws.bot_id) + '">' + (name.charAt(0) || 'N').toUpperCase() + '</span>' +
+        '<span>' + escapeHtml(name) + '</span>' +
+        '</div>';
     }
+    workspaceList.innerHTML = html;
+
+    // Attach click handlers
+    var items = workspaceList.querySelectorAll('.ws-item');
+    for (var j = 0; j < items.length; j++) {
+      items[j].addEventListener('click', function(e) {
+        e.stopPropagation();
+        var botId = this.getAttribute('data-ws-id');
+        closeWorkspaceDropdown();
+        if (botId !== currentWorkspaceBotId) {
+          switchWorkspace(botId);
+        }
+      });
+    }
+
     renderSettingsWorkspaceList(workspaces, currentWorkspaceBotId, settingsWorkspaceList, showUnbindConfirm, startOAuthLogin);
   }
 
@@ -459,7 +570,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function applyTheme(theme) {
-    var popup = document.querySelector('.popup');
     for (var i = 0; i < themes.length; i++) {
       popup.classList.remove('theme-' + themes[i]);
     }
@@ -528,8 +638,9 @@ document.addEventListener('DOMContentLoaded', () => {
     var mergedPg = [];
     var seenDb = {};
     var seenPg = {};
+    var moreCursors = {}; // { filter: next_cursor } — tracks pagination per chunk type
 
-    function handleChunk(result) {
+    function handleChunk(result, chunkMeta) {
       chunksDone++;
 
       if (result && result.success) {
@@ -548,6 +659,11 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
 
+        // Track pagination cursor
+        if (result.has_more && result.next_cursor) {
+          moreCursors[chunkMeta.filter + (chunkMeta.sort || '')] = result.next_cursor;
+        }
+
         allDatabases = mergedDb.slice();
         allPages = mergedPg.slice();
         allDatabases.sort(function(a, b) { return a.title.localeCompare(b.title); });
@@ -562,8 +678,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (chunksDone >= totalChunks) {
         if (pageDataReady) {
+          var hasMore = Object.keys(moreCursors).length > 0;
           var kv = {};
-          kv[cacheKey] = { databases: allDatabases, pages: allPages, timestamp: Date.now() };
+          kv[cacheKey] = { databases: allDatabases, pages: allPages, timestamp: Date.now(), hasMore: hasMore, moreCursors: moreCursors };
           chrome.storage.local.set(kv);
         } else if (!silent) {
           pageList.innerHTML = '<div class="page-list-empty">连接失败</div>';
@@ -571,10 +688,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'database' }, handleChunk);
-    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page', sort: 'descending' }, handleChunk);
-    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page', sort: 'ascending' }, handleChunk);
-    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page' }, handleChunk);
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'database' }, function(r) { handleChunk(r, { filter: 'database' }); });
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page', sort: 'descending' }, function(r) { handleChunk(r, { filter: 'page', sort: 'descending' }); });
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page', sort: 'ascending' }, function(r) { handleChunk(r, { filter: 'page', sort: 'ascending' }); });
+    chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: '', filter: 'page' }, function(r) { handleChunk(r, { filter: 'page' }); });
   }
 
   // 渲染"更多"元信息字段
@@ -751,16 +868,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function closeDropdown() {
+    var wasOpen = dropdownOpen || !pagePickerDropdown.classList.contains('hidden');
     dropdownOpen = false;
     if (scrollLoadHandler) {
       pagePickerDropdown.removeEventListener('scroll', scrollLoadHandler);
       scrollLoadHandler = null;
     }
     pagePickerDropdown.classList.add('hidden');
-    document.querySelector('.popup').classList.remove('dropdown-active');
+    if (workspacePickerDropdown.classList.contains('hidden')) {
+      document.querySelector('.popup').classList.remove('dropdown-active');
+    }
 
     if (targetPage.value) {
-      if (!dropdownSelectionMade) {
+      if (wasOpen && !dropdownSelectionMade) {
         // 用户没选任何项目 — 清除搜索关键词，恢复之前保存的目标标题
         var savedTitle = pageSearch.placeholder;
         if (savedTitle && savedTitle !== '选择或搜索目标页面...') {
@@ -853,14 +973,15 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPageList(mergedDb, filteredPages, [], pageList, onPageSelect, true);
 
     if (query.length >= 2) {
-      chrome.runtime.sendMessage({ action: 'fetch_pages', query: query }, (result) => {
-        if (result && result.success) {
-          mergeSearchResults(q, mergedDb, filteredPages, result.databases || [], result.pages || []);
+      // 使用 fetch_pages_chunk（支持 has_more 分页）
+      chrome.runtime.sendMessage({ action: 'fetch_pages_chunk', query: query }, function(r1) {
+        if (r1 && r1.success) {
+          mergeSearchResults(q, mergedDb, filteredPages, r1.databases || [], r1.pages || [], r1.has_more, r1.next_cursor);
         }
       });
     }
 
-    function mergeSearchResults(q, localDb, localPages, apiDb, apiPages) {
+    function mergeSearchResults(q, localDb, localPages, apiDb, apiPages, hasMore, nextCursor) {
       var seenIds = {};
       var mergedDb = [];
       var mergedPagesTop = [];
@@ -903,7 +1024,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       var mergedPages = mergedPagesTop.concat(mergedPagesRest);
-      renderPageList(mergedDb, mergedPages, [], pageList, onPageSelect, true);
+      var showMore = hasMore && mergedDb.length + mergedPages.length >= 100;
+      renderPageList(mergedDb, mergedPages, [], pageList, onPageSelect, true, 30, showMore);
     }
   }
 
@@ -1079,6 +1201,18 @@ document.addEventListener('DOMContentLoaded', () => {
     var key = presetsKey(currentWorkspaceBotId);
     chrome.storage.local.get([key], function(result) {
       presets = result[key] || [];
+      // 如果有之前选中的预设，自动应用
+      if (activePresetId && presets.length > 0) {
+        for (var i = 0; i < presets.length; i++) {
+          if (presets[i].id === activePresetId && presets[i].targetPageId) {
+            targetPage.value = presets[i].targetPageId;
+            pageSearch.value = presets[i].targetPageTitle || presets[i].targetPageId;
+            pageSearch.classList.add('has-value');
+            selectedTargetType = presets[i].targetType || 'page';
+            break;
+          }
+        }
+      }
       renderPresetsUI();
       renderSettingsPresets();
     });
@@ -1090,18 +1224,50 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function onPresetSelect(preset) {
-    activePresetId = preset.id;
-    targetPage.value = preset.targetPageId;
-    pageSearch.value = preset.targetPageTitle;
-    pageSearch.classList.add('has-value');
-    closeDropdown();
+    if (activePresetId === preset.id) {
+      activePresetId = null;
+      targetPage.value = '';
+      pageSearch.value = '';
+      pageSearch.classList.remove('has-value');
+      pageSearch.placeholder = '选择或搜索目标页面...';
+    } else {
+      if (!preset.targetPageId) {
+        showStatus('该预设未设置目标页面', 'error');
+        setTimeout(function() {
+          statusEl.style.transition = 'opacity 0.3s ease';
+          statusEl.style.opacity = '0';
+          setTimeout(function() {
+            statusEl.className = 'status hidden';
+            statusEl.style.opacity = '';
+            statusEl.style.transition = '';
+          }, 300);
+        }, 2500);
+        return;
+      }
+      activePresetId = preset.id;
+      targetPage.value = preset.targetPageId;
+      pageSearch.value = preset.targetPageTitle || preset.targetPageId;
+      pageSearch.classList.add('has-value');
+      selectedTargetType = preset.targetType || 'page';
+    }
+    if (dropdownOpen || !pagePickerDropdown.classList.contains('hidden')) {
+      closeDropdown();
+    }
     renderPresetsUI();
   }
 
   function showPresetCreateForm() {
     if (!targetPage.value) {
       showStatus('请先在"保存到"下拉框中选择目标页面', 'loading');
-      setTimeout(function() { statusEl.className = 'status hidden'; }, 2000);
+      setTimeout(function() {
+        statusEl.style.transition = 'opacity 0.3s ease';
+        statusEl.style.opacity = '0';
+        setTimeout(function() {
+          statusEl.className = 'status hidden';
+          statusEl.style.opacity = '';
+          statusEl.style.transition = '';
+        }, 300);
+      }, 2500);
       return;
     }
     presetCreateForm.classList.remove('hidden');
@@ -1273,17 +1439,11 @@ document.addEventListener('DOMContentLoaded', () => {
           btnEl.textContent = '✓';
           setTimeout(function() { btnEl.textContent = origText; }, 1000);
         }
+      }).catch(function() {
+        // clipboard API 可能因权限被拒，静默失败
       });
     } catch (e) {
-      // fallback
-      var ta = document.createElement('textarea');
-      ta.value = url;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+      // 浏览器不支持 clipboard API 时静默失败
     }
   }
 
@@ -1348,7 +1508,15 @@ document.addEventListener('DOMContentLoaded', () => {
               btnEl.disabled = false;
             }
             showStatus('请打开要保存的页面后重试', 'error');
-            setTimeout(function() { statusEl.className = 'status hidden'; }, 2000);
+            setTimeout(function() {
+        statusEl.style.transition = 'opacity 0.3s ease';
+        statusEl.style.opacity = '0';
+        setTimeout(function() {
+          statusEl.className = 'status hidden';
+          statusEl.style.opacity = '';
+          statusEl.style.transition = '';
+        }, 300);
+      }, 2500);
             return;
           }
           doSave(response);

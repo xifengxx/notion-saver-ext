@@ -559,26 +559,6 @@ function processElement(el, tag, blocks) {
     }
     }
   }
-  // 纯代码块（WeChat 有时直接用 code 标签，不在 pre 里）
-  else if (tag === 'code') {
-    // 检查是否在 pre 内（如果在，已由上面处理，跳过）
-    var ancestor = el.parentElement;
-    var isInPre = false;
-    while (ancestor) {
-      if (ancestor.tagName.toLowerCase() === 'pre') {
-        isInPre = true;
-        break;
-      }
-      ancestor = ancestor.parentElement;
-    }
-    if (!isInPre) {
-      var codeText3 = el.textContent || '';
-      codeText3 = codeText3.replace(/^\s*\d+\s+/gm, '');
-      if (codeText3 && codeText3.trim().length > 0) {
-        blocks.push(codeBlock(codeText3.trim(), ''));
-      }
-    }
-  }
   // 分隔线
   else if (tag === 'hr') {
     blocks.push(dividerBlock());
@@ -2682,8 +2662,8 @@ function extractGenericMeta(doc) {
   }
 
   var desc = metaContent('meta[property="og:description"]') || metaContent('meta[name="description"]');
-  if (desc.length > 50) {
-    desc = desc.substring(0, 50).replace(/\s+\S*$/, '') + '...';
+  if (desc.length > 100) {
+    desc = desc.substring(0, 100) + '...';
   }
 
   return {

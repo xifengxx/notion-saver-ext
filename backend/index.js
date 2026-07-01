@@ -1,19 +1,57 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const NOTION_CLIENT_ID = process.env.NOTION_CLIENT_ID;
 const NOTION_CLIENT_SECRET = process.env.NOTION_CLIENT_SECRET;
 const NOTION_REDIRECT_URI = process.env.NOTION_REDIRECT_URI;
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '';
 
 const TOKEN_STORE = path.join(__dirname, 'token-store.json');
 const SESSION_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 
+// ============================================================
+// Rate limiter — sliding window, per-IP, in-memory
+// ============================================================
+var rateLimitStore = {};
+var RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+var RATE_LIMIT_MAX = 30;               // max requests per window
+var TOKEN_ENDPOINT_MAX = 10;           // stricter for /token (prevents session ID brute-force)
+
+function rateLimit(maxRequests) {
+  return function(req, res, next) {
+    var ip = req.ip || req.socket.remoteAddress || 'unknown';
+    var now = Date.now();
+    if (!rateLimitStore[ip] || now - rateLimitStore[ip].windowStart > RATE_LIMIT_WINDOW_MS) {
+      rateLimitStore[ip] = { windowStart: now, count: 0 };
+    }
+    rateLimitStore[ip].count++;
+    res.setHeader('X-RateLimit-Remaining', Math.max(0, maxRequests - rateLimitStore[ip].count));
+    if (rateLimitStore[ip].count > maxRequests) {
+      return res.status(429).json({ error: 'Too many requests, try again later' });
+    }
+    next();
+  };
+}
+
+// Periodic cleanup of stale rate limit entries
+setInterval(function() {
+  var now = Date.now();
+  var keys = Object.keys(rateLimitStore);
+  for (var i = 0; i < keys.length; i++) {
+    if (now - rateLimitStore[keys[i]].windowStart > RATE_LIMIT_WINDOW_MS * 2) {
+      delete rateLimitStore[keys[i]];
+    }
+  }
+}, CLEANUP_INTERVAL_MS);
+
 // Request logging
 app.use(express.json());
+app.use(rateLimit(RATE_LIMIT_MAX));
 app.use(function logRequest(req, res, next) {
   var now = new Date().toISOString();
   console.log('[' + now + '] ' + req.method + ' ' + req.path);
@@ -25,13 +63,56 @@ if (!NOTION_CLIENT_ID || !NOTION_CLIENT_SECRET || !NOTION_REDIRECT_URI) {
   console.error('[Notion Saver] ERROR: Missing environment variables. Check NOTION_CLIENT_ID, NOTION_CLIENT_SECRET, NOTION_REDIRECT_URI.');
   process.exit(1);
 }
+if (!ENCRYPTION_KEY) {
+  console.error('[Notion Saver] ERROR: ENCRYPTION_KEY not set. Generate with: node -e "console.log(crypto.randomBytes(32).toString(\'hex\'))"');
+  process.exit(1);
+}
+if (ENCRYPTION_KEY.length < 64) {
+  console.error('[Notion Saver] ERROR: ENCRYPTION_KEY must be at least 64 hex characters (32 bytes).');
+  process.exit(1);
+}
 console.log('[Notion Saver] Starting with redirect URI: ' + NOTION_REDIRECT_URI);
 
-// Token store helpers
+// Token store helpers (AES-256-GCM encrypted)
+var ENCRYPTION_KEY_BUFFER = Buffer.from(ENCRYPTION_KEY, 'hex');
+
+function encrypt(plaintext) {
+  var iv = crypto.randomBytes(16);
+  var cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY_BUFFER, iv);
+  var encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  var authTag = cipher.getAuthTag();
+  return {
+    v: 1,
+    iv: iv.toString('base64'),
+    data: encrypted.toString('base64'),
+    authTag: authTag.toString('base64'),
+  };
+}
+
+function decrypt(wrapper) {
+  var iv = Buffer.from(wrapper.iv, 'base64');
+  var authTag = Buffer.from(wrapper.authTag, 'base64');
+  var encrypted = Buffer.from(wrapper.data, 'base64');
+  var decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY_BUFFER, iv);
+  decipher.setAuthTag(authTag);
+  var decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString('utf8');
+}
+
 function readTokens() {
   try {
     if (!fs.existsSync(TOKEN_STORE)) return {};
-    return JSON.parse(fs.readFileSync(TOKEN_STORE, 'utf8'));
+    var raw = fs.readFileSync(TOKEN_STORE, 'utf8');
+    var parsed = JSON.parse(raw);
+    // 新格式（加密）：{ v: 1, iv, data, authTag }
+    if (parsed.v === 1 && parsed.iv && parsed.data && parsed.authTag) {
+      return JSON.parse(decrypt(parsed));
+    }
+    // 旧格式（明文兼容）：直接返回，下次写入时自动升级为加密
+    if (Object.keys(parsed).length > 0) {
+      console.log('[Notion Saver] Migrating plaintext token store to encrypted format');
+    }
+    return parsed;
   } catch (e) {
     console.error('[Notion Saver] Failed to read token store, resetting: ' + e.message);
     return {};
@@ -40,7 +121,9 @@ function readTokens() {
 
 function writeTokens(store) {
   try {
-    fs.writeFileSync(TOKEN_STORE, JSON.stringify(store));
+    var json = JSON.stringify(store);
+    var wrapper = encrypt(json);
+    fs.writeFileSync(TOKEN_STORE, JSON.stringify(wrapper));
   } catch (e) {
     console.error('[Notion Saver] Failed to write token store: ' + e.message);
   }
@@ -162,7 +245,7 @@ app.get('/callback', function(req, res) {
 });
 
 // 3. Extension polls this to retrieve tokens
-app.get('/token', function(req, res) {
+app.get('/token', rateLimit(TOKEN_ENDPOINT_MAX), function(req, res) {
   var session = req.query.session;
   if (!session) return res.status(400).json({ error: 'Missing session' });
 

@@ -77,7 +77,7 @@ export function getPillColor(index) {
   return { bg: newBg, text: textColor };
 }
 
-export function renderPageList(databases, pages, recent, pageListEl, onSelect, isSearch, visibleCount) {
+export function renderPageList(databases, pages, recent, pageListEl, onSelect, isSearch, visibleCount, showMore) {
   var html = '';
   recent = recent || [];
 
@@ -128,6 +128,8 @@ export function renderPageList(databases, pages, recent, pageListEl, onSelect, i
 
     if (databases.length === 0 && pages.length === 0) {
       html = '<div class="page-list-empty">未找到匹配的页面或数据库</div>';
+    } else if (showMore) {
+      html += '<div class="page-list-more">搜索结果超过 100 条，请输入更精确的关键词</div>';
     }
 
     pageListEl.innerHTML = html;
@@ -273,7 +275,7 @@ export function renderPresetsRow(presets, activePresetId, containerEl, maxCount,
       escapeHtml(p.name) + '</span>';
   }
   if (presets.length < maxCount) {
-    html += '<span class="preset-pill preset-pill-add" id="preset-add-btn">+</span>';
+    html += '<span class="preset-pill preset-pill-add" id="preset-pill-add-btn">+</span>';
   }
   containerEl.innerHTML = html;
 
@@ -317,7 +319,7 @@ export function renderHistoryList(entries, containerEl, onOpen, onCopy, onRetry)
     for (var i = 0; i < group.items.length; i++) {
       var entry = group.items[i];
       var isSuccess = entry.status === 'success';
-      var icon = isSuccess ? '✓' : '✕';
+      var icon = '';
       var iconClass = isSuccess ? 'success' : 'failed';
 
       html += '<div class="history-item" data-entry-id="' + entry.id + '" data-notion-url="' + escapeHtml(entry.notionUrl || '') + '">' +

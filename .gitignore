@@ -13,3 +13,8 @@ design-comparison.html
 AGENTS.md
 NotionSnap-v0.4.0.zip
 .DS_Store
+
+# 备份和临时文件
+*.bak
+*.backup
+*.zip
