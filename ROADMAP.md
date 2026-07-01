@@ -1,6 +1,6 @@
 # NotionSnap — 开发路线图
 
-> 最后更新：2026-05-27 | 当前版本：v0.6.1
+> 最后更新：2026-07-01 | 当前版本：v0.6.2
 
 ## 产品定位
 
@@ -71,9 +71,9 @@
 
 ## 待做
 
-### P0 — Chrome Web Store 重新提交
+### P0 — Chrome Web Store 上架 ✅
 
-修复描述关键词堆砌 → 重新打包 → 重新提交。当前状态：文案已修复，待提交。
+2026-06-05 首次提交被拒（关键词堆砌），修复后二次提交，2026-06-09 审核通过已上架。CWS 链接：https://chromewebstore.google.com/detail/notionsnap/eedapefdokhmncpgomaagjipfbafhhgi
 
 ### P1 — 图片上传成功率提升
 
@@ -98,9 +98,9 @@ Firefox MV3（2024 已支持）、Edge（Chromium 兼容）。核心代码不动
 
 | 事项 | 工作量 | 说明 |
 |------|--------|------|
-| Twitter/微信/小红书视频 URL 提取 | 1-2 天 | 当前降级为 `[视频]` 占位符（蓝色加粗）。根因：Twitter blob: URL 不可从 DOM 提取，微信 CDN 需 auth → 403，小红书 CDN 需 Referer+Cookie → JS 挑战。需逐个研究真实视频源获取方案 |
+| Twitter/微信/小红书视频真实 URL 提取 | 1-2 天 | 当前降级为 `[视频]` 占位符。根因：Twitter blob URL / 微信 CDN 403 / 小红书 JS 挑战。需逐个研究视频源 |
 | tests/verify.js 扩充端到端测试 | 半天 | 模拟完整保存流程 |
-| SW 终止恢复边界情况完善 | 半天 | 边缘 case 覆盖 |
+| ~~SW 终止恢复边界情况完善~~ | - | 2026-07-01 审查：触发概率 <0.1%，现有 save_state 提示机制够用，不修 |
 | Popup 大页面提取性能优化 | 1 小时 | 提取与渲染分离 |
 
 ### 远期愿景

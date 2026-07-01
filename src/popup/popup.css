@@ -1376,6 +1376,9 @@ header h1 {
 .popup.theme-raycast .card {
   backdrop-filter: blur(10px);
 }
+.popup.theme-raycast .card::after {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+}
 
 .popup.theme-raycast #content-preview {
   backdrop-filter: blur(10px);
@@ -1575,6 +1578,10 @@ header h1 {
 .popup.theme-vercel .editable-title:hover {
   border-color: #eaeaea;
 }
+.popup.theme-vercel .editable-title:focus {
+  border-color: #000;
+  background: #f5f5f5;
+}
 
 .popup.theme-vercel .page-picker-trigger {
   border-color: #eaeaea;
@@ -1601,12 +1608,24 @@ header h1 {
   background: #f5f5f5;
 }
 
+.popup.theme-vercel .workspace-item:hover {
+  background: #f5f5f5;
+}
+
 .popup.theme-vercel .field select:hover {
   border-color: #ccc;
 }
 
 .popup.theme-vercel .field select option {
   background: #ffffff;
+}
+
+.popup.theme-vercel .settings-header h2 {
+  color: var(--text-color);
+}
+
+.popup.theme-vercel .icon-btn:hover {
+  background: #f0f0f0;
 }
 
 .popup.theme-vercel .theme-indicator {

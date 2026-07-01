@@ -7,7 +7,7 @@ Chrome 浏览器扩展（Manifest V3），一键保存任意网页到 Notion。�
 ## 版本信息
 
 - **当前版本**：v0.6.1（2026-05-27）
-- **Phase 状态**：Phase 0-6 全部完成。Phase 6 — Twitter/GitHub/Medium/Substack 独立解析 + 视频平台支持 + 视频占位符修复，详见 ROADMAP.md
+- **Phase 状态**：Phase 0-6 全部完成 ✅。Phase 7 — CWS 上架 ✅ / 图片上传优化 / 多网站适配，详见 ROADMAP.md
 
 ## 技术栈
 
@@ -61,7 +61,7 @@ notion-saver-ext/
 - Phase 4 — 扩展 UI ✅
 - Phase 5 — 测试与发布 ✅
 - Phase 6 — v0.5.x 搜索优化 ✅
-- Phase 7 — Chrome Web Store 上架 / 图片上传优化 / 多网站适配（下一步）
+- Phase 7 — CWS 上架 ✅ / 图片上传优化 / 多网站适配（进行中）
 
 ## 已实现功能
 
@@ -99,7 +99,7 @@ notion-saver-ext/
 
 1. **内容提取**：自定义 DOM 遍历（非 Mozilla Readability），可控性更强
 2. **图片处理**：使用外部 URL（非 Base64），简单且不触发 Notion API 大小限制
-3. **认证**：Internal Integration Token（非 OAuth），满足个人使用
+3. **认证**：OAuth 2.0（非 Internal Integration Token），支持多工作区
 4. **Service Worker**：Promise 链 + 递归调用（非 async/await），避免 minify 问题和休眠问题
 5. **HTML 转换**：手动映射 HTML 标签到 Notion block 类型（非 Markdown 中转）
 6. **构建**：Vite + CRXJS，保持 MV3 标准输出

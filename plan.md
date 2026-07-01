@@ -1,15 +1,11 @@
-# Notion Saver — 开发规划
+# 开发规划（已归档）
+
+> ⚠️ 本文档已不再维护。最新路线图请见 [ROADMAP.md](ROADMAP.md)。
+> 最后更新：2026-05-23 | 归档：2026-07-01
 
 ## 项目定位
 
-Chrome 扩展（Manifest V3），一键保存任意网页到 Notion。核心场景：公众号文章的稳定完整抓取。
-
-替代方案对比：
-| 方案 | 状态 | 问题 |
-|------|------|------|
-| Notion Web Clipper | 官方 | 不稳定，公众号有时抓不完整 |
-| Copy to Notion | 付费 | 超出额度收费 |
-| Notion Saver（本项目） | v0.1 | 免费，公众号专用解析 |
+Chrome 扩展（Manifest V3），一键保存任意网页到 Notion。当前版本 v0.6.1，已上架 Chrome Web Store。
 
 ## 阶段总览
 

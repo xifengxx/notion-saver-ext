@@ -258,14 +258,16 @@ web page to notion, notion save
 
 ## 八、提交前检查清单
 
-- [ ] Google 开发者账号注册（$5 一次性费用）
-- [ ] 6 张截图裁切至 1280×800
-- [ ] 小推广图制作（440×280）
-- [ ] 隐私政策页面就绪（GitHub PRIVACY.md）
-- [ ] 开发者邮箱确认
-- [ ] OAuth 代理后端确认在线（notion-saver-ext-production.up.railway.app）
-- [ ] `npx vite build` 通过
-- [ ] 最终在 Chrome 加载 dist/ 手动验证 5 分钟
+> ✅ 已上架（2026-06-09）。以下为原始检查清单，供未来更新参考。
+
+- [x] Google 开发者账号注册（$5 一次性费用）
+- [x] 6 张截图裁切至 1280×800
+- [x] 小推广图制作（440×280）
+- [x] 隐私政策页面就绪（GitHub PRIVACY.md）
+- [x] 开发者邮箱确认
+- [x] OAuth 代理后端确认在线（notion-saver-ext-production.up.railway.app）
+- [x] `npx vite build` 通过
+- [x] 最终在 Chrome 加载 dist/ 手动验证 5 分钟
 
 ---
 

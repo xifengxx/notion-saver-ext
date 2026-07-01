@@ -1,5 +1,39 @@
 # 变更日志
 
+## v0.6.2 (2026-07-01)
+
+### 🔒 安全修复（对抗式审查）
+- 修复：OAuth Session ID 改用 `crypto.randomUUID()`（替换 `Math.random()`，防止暴力枚举窃取 token）
+- 修复：Backend token-store.json 明文存储 → AES-256-GCM 加密（新增 `ENCRYPTION_KEY` 环境变量，兼容旧明文格式自动迁移）
+- 新增：Backend 滑动窗口速率限制（全局 30 req/min，`/token` 端点 10 req/min，防 session ID 暴力枚举）
+- 修复：`showPageToast` innerHTML 拼接 URL → `createElement('a')` + `createTextNode`
+
+### 🐛 Bug 修复
+- 修复：中文描述截断逻辑对 CJK 字符的误处理（阈值 50→100，移除错误的正则 `\s+\S*$`）
+- 修复：通用网页 `body` 兜底阈值 200→500 字符（减少短页面误提取）
+- 修复：页面搜索不处理 Notion API `has_more` 分页（超 100 条结果时提示用户缩小搜索范围）
+- 修复：CSS `body` 规则重复定义 + Raycast/Vercel 双主题特殊效果覆盖不对称（Vercel 补 focus/hover/header/icon 5 条，Raycast 补 `card::after`）
+
+### 🎨 UI 优化
+- 优化：标题字体升级为 Inter（Google Fonts），粗细从 600→800，加 -0.3px 字间距
+- 优化：emoji 图标全面替换为 SVG（历史时钟、设置齿轮、下拉箭头、返回箭头）
+- 优化：Workspace 选择器重构 — 从原生 `<select>` 改为自定义下拉框（彩色头像圆点、hover 高亮、active 状态）
+- 优化：Presets 预设区布局 — 标签与 + 按钮同行靠右
+- 优化：卡片容器 shadow + 顶部高光线（Vercel: 1px border，Raycast: backdrop-filter blur）
+- 优化：分隔线从实线改为渐变透明（`linear-gradient(90deg, transparent, var(--divider-color), transparent)`）
+- 优化：popup 弹窗高度 520→700px，最小高度 420px，间距微调
+- 优化：标题编辑区最大 4 行溢出裁剪（`-webkit-line-clamp: 4`）
+- 优化：各区块 label 统一样式（`.section-label` uppercase 11px 700）
+- 优化：自定义滚动条统一样式（6px 宽，hover 变深）
+
+### 🧹 清理
+- 移除：`document.execCommand('copy')` 废弃 API 降级
+- 删除：`src/popup/` 4 个 .bak/.backup 文件
+- 删除：3 个 .DS_Store（根目录、docs/、pic/）
+- 删除：旧审计报告 `code-audit-2026-05-23.md`（已由本次审查取代）
+- 删除：`CHANGES_SUMMARY.md`（内容合入本 CHANGELOG）
+- `.gitignore` 新增：`*.bak`、`*.backup`、`*.zip`、`.aura/`
+
 ## v0.6.1 (2026-05-27)
 
 - 新增：视频平台页面专用解析器 — YouTube / Bilibili / TikTok / Douyin 页面识别 + 元数据提取 + embed block

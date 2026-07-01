@@ -2492,7 +2492,7 @@ function extractGenericContent(doc) {
   for (var i = 0; i < selectors.length; i++) {
     var candidate = doc.querySelector(selectors[i]);
     // body 兜底放宽阈值
-    var minLen = selectors[i] === 'body' ? 200 : 50;
+    var minLen = selectors[i] === 'body' ? 500 : 50;
     if (candidate && candidate.textContent.trim().length > minLen) {
       content = candidate;
       break;

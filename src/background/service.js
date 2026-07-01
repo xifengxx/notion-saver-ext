@@ -2060,11 +2060,15 @@ function showPageToast(tabId, type, message, pageUrl) {
       var toast = document.createElement('div');
       toast.id = 'notion-saver-toast';
       toast.style.cssText = 'position:fixed;top:16px;right:16px;z-index:2147483647;background:' + bg + ';color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.25);display:flex;align-items:center;gap:6px;animation:ns-fade-in 0.3s ease;opacity:1;transition:opacity 0.5s ease';
-      var inner = ic + ' ' + msg;
+      toast.appendChild(document.createTextNode(ic + ' ' + msg));
       if (url) {
-        inner += ' <a href="' + url + '" target="_blank" style="color:#fff;text-decoration:underline;margin-left:4px">在 Notion 中打开</a>';
+        var link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.style.cssText = 'color:#fff;text-decoration:underline;margin-left:4px';
+        link.textContent = '在 Notion 中打开';
+        toast.appendChild(link);
       }
-      toast.innerHTML = inner;
       document.body.appendChild(toast);
       setTimeout(function() {
         toast.style.opacity = '0';
